@@ -274,7 +274,9 @@ class _LoginPageState extends State<LoginPage> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && accessibility.voiceAssistantEnabled) {
-        VoiceAssistantService.speak('Login screen');
+        VoiceAssistantService.speak(
+          'Login screen. Username field. Password field. Login button.',
+        );
       }
     });
 
@@ -326,56 +328,164 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        TextField(
-                          controller: _usernameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Username',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.lock),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
+                        Semantics(
+                          label: 'Username field',
+                          hint: 'Enter your username',
+                          child: Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  'Username field. Enter your username.',
+                                );
+                              }
+                            },
+                            child: TextField(
+                              controller: _usernameController,
+                              onChanged: (value) {
+                                if (accessibility.voiceAssistantEnabled &&
+                                    value.isNotEmpty) {
+                                  VoiceAssistantService.speak(
+                                    value.substring(value.length - 1),
+                                  );
+                                }
                               },
+                              onTap: () {
+                                if (accessibility.voiceAssistantEnabled) {
+                                  VoiceAssistantService.speak(
+                                    'Username field. Enter your username.',
+                                  );
+                                }
+                              },
+                              decoration: const InputDecoration(
+                                labelText: 'Username',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.person),
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _login,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                        Semantics(
+                          label: 'Password field',
+                          hint: 'Enter your password',
+                          child: Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  'Password field. Enter your password.',
+                                );
+                              }
+                            },
+                            child: TextField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              onChanged: (value) {
+                                if (accessibility.voiceAssistantEnabled &&
+                                    value.isNotEmpty) {
+                                  VoiceAssistantService.speak(
+                                    value.substring(value.length - 1),
+                                  );
+                                }
+                              },
+                              onTap: () {
+                                if (accessibility.voiceAssistantEnabled) {
+                                  VoiceAssistantService.speak(
+                                    'Password field. Enter your password.',
+                                  );
+                                }
+                              },
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.lock),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
+                                    if (accessibility.voiceAssistantEnabled) {
+                                      VoiceAssistantService.speak(
+                                        _obscurePassword
+                                            ? 'Password hidden.'
+                                            : 'Password visible.',
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
                           ),
-                          child: const Text('Login'),
+                        ),
+                        const SizedBox(height: 16),
+                        Semantics(
+                          label: 'Login button',
+                          button: true,
+                          hint: 'Double tap to login',
+                          child: Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak('Login button');
+                              }
+                            },
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (accessibility.voiceAssistantEnabled) {
+                                  VoiceAssistantService.speak(
+                                    'Login button pressed.',
+                                  );
+                                }
+                                _login();
+                              },
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                              ),
+                              child: const Text('Login'),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 12),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const CreateAccountPage(),
+                        Semantics(
+                          label: 'Create account link',
+                          button: true,
+                          hint: 'Double tap to create an account',
+                          child: Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  'Create account link',
+                                );
+                              }
+                            },
+                            child: TextButton(
+                              onPressed: () {
+                                if (accessibility.voiceAssistantEnabled) {
+                                  VoiceAssistantService.speak(
+                                    'Create account link pressed.',
+                                  );
+                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const CreateAccountPage(),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                "Don't have an account? Create account",
                               ),
-                            );
-                          },
-                          child: const Text(
-                            "Don't have an account? Create account",
+                            ),
                           ),
                         ),
                       ],
@@ -532,13 +642,36 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: controller,
-        keyboardType: keyboardType,
-        obscureText: obscureText,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
+      child: Semantics(
+        label: '$label field',
+        hint: 'Enter $label',
+        child: Focus(
+          onFocusChange: (hasFocus) {
+            if (hasFocus &&
+                AccessibilitySettings.of(context).voiceAssistantEnabled) {
+              VoiceAssistantService.speak('$label field. Enter $label.');
+            }
+          },
+          child: TextField(
+            controller: controller,
+            keyboardType: keyboardType,
+            obscureText: obscureText,
+            onChanged: (value) {
+              if (AccessibilitySettings.of(context).voiceAssistantEnabled &&
+                  value.isNotEmpty) {
+                VoiceAssistantService.speak(value.substring(value.length - 1));
+              }
+            },
+            onTap: () {
+              if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+                VoiceAssistantService.speak('$label field. Enter $label.');
+              }
+            },
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+            ),
+          ),
         ),
       ),
     );
@@ -552,16 +685,29 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: DropdownButtonFormField<T>(
-        value: value,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
+      child: Semantics(
+        label: '$label dropdown',
+        child: DropdownButtonFormField<T>(
+          value: value,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+          ),
+          items: items.map((item) {
+            return DropdownMenuItem<T>(
+              value: item,
+              child: Text(item.toString()),
+            );
+          }).toList(),
+          onChanged: (selectedValue) {
+            if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+              VoiceAssistantService.speak(
+                '$label selected: ${selectedValue.toString()}',
+              );
+            }
+            onChanged(selectedValue);
+          },
         ),
-        items: items.map((item) {
-          return DropdownMenuItem<T>(value: item, child: Text(item.toString()));
-        }).toList(),
-        onChanged: onChanged,
       ),
     );
   }
@@ -573,7 +719,9 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && accessibility.voiceAssistantEnabled) {
-        VoiceAssistantService.speak('Create account screen');
+        VoiceAssistantService.speak(
+          'Create account screen. Disabled user option. Doctor option.',
+        );
       }
     });
 
@@ -625,20 +773,30 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        SegmentedButton<bool>(
-                          segments: const [
-                            ButtonSegment(
-                              value: false,
-                              label: Text('Disabled User'),
-                            ),
-                            ButtonSegment(value: true, label: Text('Doctor')),
-                          ],
-                          selected: {_isDoctorForm},
-                          onSelectionChanged: (Set<bool> selection) {
-                            setState(() {
-                              _isDoctorForm = selection.first;
-                            });
-                          },
+                        Semantics(
+                          label: 'Account type selection',
+                          child: SegmentedButton<bool>(
+                            segments: const [
+                              ButtonSegment(
+                                value: false,
+                                label: Text('Disabled User'),
+                              ),
+                              ButtonSegment(value: true, label: Text('Doctor')),
+                            ],
+                            selected: {_isDoctorForm},
+                            onSelectionChanged: (Set<bool> selection) {
+                              setState(() {
+                                _isDoctorForm = selection.first;
+                              });
+                              if (accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  selection.first
+                                      ? 'Doctor form selected.'
+                                      : 'Disabled user form selected.',
+                                );
+                              }
+                            },
+                          ),
                         ),
                         const SizedBox(height: 20),
                         if (!isDoctor) ...[
@@ -700,15 +858,25 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                               label: 'Specify Disability Type',
                             ),
                           const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: () {
-                              if (_validateDisabledForm()) {
-                                _showMessage(
-                                  'Disabled user account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
+                          Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  'Create Disabled User Account button',
                                 );
                               }
                             },
-                            child: const Text('Create Disabled User Account'),
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (_validateDisabledForm()) {
+                                  _showMessage(
+                                    'Disabled user account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
+                                  );
+                                }
+                              },
+                              child: const Text('Create Disabled User Account'),
+                            ),
                           ),
                         ] else ...[
                           _buildTextField(
@@ -761,15 +929,25 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                               label: 'Specify Specialization',
                             ),
                           const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: () {
-                              if (_validateDoctorForm()) {
-                                _showMessage(
-                                  'Doctor account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
+                          Focus(
+                            onFocusChange: (hasFocus) {
+                              if (hasFocus &&
+                                  accessibility.voiceAssistantEnabled) {
+                                VoiceAssistantService.speak(
+                                  'Create Doctor Account button',
                                 );
                               }
                             },
-                            child: const Text('Create Doctor Account'),
+                            child: ElevatedButton(
+                              onPressed: () {
+                                if (_validateDoctorForm()) {
+                                  _showMessage(
+                                    'Doctor account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
+                                  );
+                                }
+                              },
+                              child: const Text('Create Doctor Account'),
+                            ),
                           ),
                         ],
                       ],
