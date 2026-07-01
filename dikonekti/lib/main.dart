@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'services/user_api_service.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -188,6 +190,20 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _voiceAssistantEnabled = false;
   double _textScaleFactor = 1.0;
+  final List<UserAccount> _accounts = [];
+  UserAccount? _currentUser;
+
+  void _handleLoginSuccess(UserAccount account) {
+    setState(() {
+      _currentUser = account;
+    });
+  }
+
+  void _handleAccountCreated(UserAccount account) {
+    setState(() {
+      _accounts.add(account);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -219,14 +235,609 @@ class _MyAppState extends State<MyApp> {
             child: child!,
           );
         },
-        home: const LoginPage(),
+        home: _currentUser == null
+            ? LoginPage(
+                accounts: _accounts,
+                onLoginSuccess: _handleLoginSuccess,
+                onAccountCreated: _handleAccountCreated,
+              )
+            : DashboardPage(user: _currentUser!),
+      ),
+    );
+  }
+}
+
+class UserAccount {
+  UserAccount({
+    required this.username,
+    required this.password,
+    required this.role,
+  });
+
+  final String username;
+  final String password;
+  final String role;
+}
+
+/// Returns a friendly, time-of-day aware greeting.
+String _timeOfDayGreeting() {
+  final hour = DateTime.now().hour;
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+class DashboardPage extends StatelessWidget {
+  const DashboardPage({super.key, required this.user});
+
+  final UserAccount user;
+
+  bool get _isDoctor => user.role.toLowerCase() == 'doctor';
+
+  @override
+  Widget build(BuildContext context) {
+    return _isDoctor
+        ? _DoctorDashboard(user: user)
+        : _DisabledUserDashboard(user: user);
+  }
+}
+
+/// ---------------------------------------------------------------------
+/// Disabled User Dashboard
+/// ---------------------------------------------------------------------
+class _DisabledUserDashboard extends StatefulWidget {
+  const _DisabledUserDashboard({required this.user});
+
+  final UserAccount user;
+
+  @override
+  State<_DisabledUserDashboard> createState() => _DisabledUserDashboardState();
+}
+
+class _DisabledUserDashboardState extends State<_DisabledUserDashboard> {
+  bool _hasAnnouncedWelcome = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+    final greeting = _timeOfDayGreeting();
+    final welcomeMessage =
+        '$greeting, ${widget.user.username}! Welcome back to your dashboard.';
+
+    if (!_hasAnnouncedWelcome && accessibility.voiceAssistantEnabled) {
+      _hasAnnouncedWelcome = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        VoiceAssistantService.speak(
+          '$welcomeMessage You have quick access to your doctor, your '
+          'profile, and an emergency alert button at the bottom of the screen.',
+        );
+      });
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F3FB),
+      appBar: AppBar(
+        title: const Text('My Dashboard'),
+        actions: const [AccessibilityButton()],
+      ),
+      // The emergency button lives outside the scrollable area so it is
+      // always reachable, regardless of scroll position or text scale.
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _WelcomeHeader(
+                      greeting: greeting,
+                      username: widget.user.username,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Quick Actions',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D2150),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _QuickActionsGrid(
+                      actions: [
+                        _QuickAction(
+                          icon: Icons.medical_services_rounded,
+                          label: 'My Doctor',
+                          color: const Color(0xFF6750A4),
+                          onTap: () => _showInfoSnack(
+                            context,
+                            'Opening your registered doctor\'s contact details.',
+                          ),
+                        ),
+                        _QuickAction(
+                          icon: Icons.person_rounded,
+                          label: 'My Profile',
+                          color: const Color(0xFF386641),
+                          onTap: () =>
+                              _showInfoSnack(context, 'Opening your profile.'),
+                        ),
+                        _QuickAction(
+                          icon: Icons.tips_and_updates_rounded,
+                          label: 'Health Tips',
+                          color: const Color(0xFFBC6C25),
+                          onTap: () => _showInfoSnack(
+                            context,
+                            'Showing helpful health tips.',
+                          ),
+                        ),
+                        _QuickAction(
+                          icon: Icons.settings_accessibility_rounded,
+                          label: 'Accessibility',
+                          color: const Color(0xFF1D3557),
+                          onTap: () {
+                            // Reuses the existing accessibility dialog.
+                            final button = AccessibilityButton();
+                            showDialog<void>(
+                              context: context,
+                              builder: (_) => button,
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE6E1F5)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.info_outline_rounded,
+                            color: Color(0xFF6750A4),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Hope you are doing well! Tap the red button '
+                              'below at any time if you need urgent help.',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+            const _EmergencyAlertBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showInfoSnack(BuildContext context, String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+      VoiceAssistantService.speak(message);
+    }
+  }
+}
+
+class _WelcomeHeader extends StatelessWidget {
+  const _WelcomeHeader({required this.greeting, required this.username});
+
+  final String greeting;
+  final String username;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$greeting, $username. Welcome to your dashboard.',
+      child: Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF6750A4), Color(0xFF9B7FE8)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF6750A4).withOpacity(0.25),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: Colors.white.withOpacity(0.2),
+              child: Text(
+                username.isNotEmpty ? username[0].toUpperCase() : '?',
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$greeting,',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.white.withOpacity(0.85),
+                    ),
+                  ),
+                  Text(
+                    username,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'We\'re here to support you',
+                      style: TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickAction {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+}
+
+class _QuickActionsGrid extends StatelessWidget {
+  const _QuickActionsGrid({required this.actions});
+
+  final List<_QuickAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: actions.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 14,
+        childAspectRatio: 1.25,
+      ),
+      itemBuilder: (context, index) {
+        final action = actions[index];
+        return Semantics(
+          label: '${action.label} button',
+          button: true,
+          hint: 'Double tap to open ${action.label}',
+          child: Focus(
+            onFocusChange: (hasFocus) {
+              if (hasFocus && accessibility.voiceAssistantEnabled) {
+                VoiceAssistantService.speak(action.label);
+              }
+            },
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () {
+                  if (accessibility.voiceAssistantEnabled) {
+                    VoiceAssistantService.speak('${action.label} opened.');
+                  }
+                  action.onTap();
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFEDE9F8)),
+                  ),
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: action.color.withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(action.icon, color: action.color, size: 28),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        action.label,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2D2150),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Persistent emergency alert bar pinned to the bottom of the dashboard.
+/// Gently pulses to draw attention and requires a confirmation step before
+/// sending an alert, so it can't be triggered by an accidental tap.
+class _EmergencyAlertBar extends StatefulWidget {
+  const _EmergencyAlertBar();
+
+  @override
+  State<_EmergencyAlertBar> createState() => _EmergencyAlertBarState();
+}
+
+class _EmergencyAlertBarState extends State<_EmergencyAlertBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1, milliseconds: 200),
+    )..repeat(reverse: true);
+    _pulse = Tween<double>(begin: 0.96, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirmAndSendAlert(BuildContext context) async {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(
+        'Emergency alert. Are you sure you want to send an alert to your '
+        'doctor and emergency contacts?',
+      );
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(Icons.warning_rounded, color: Colors.red, size: 36),
+          title: const Text('Send Emergency Alert?'),
+          content: const Text(
+            'This will immediately notify your registered doctor and '
+            'emergency contacts with your name and location.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Send Alert'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    // TODO: hook this up to a real alert/SMS/call service.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Emergency alert sent. Help is on the way.'),
+        backgroundColor: Colors.red,
+      ),
+    );
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak('Emergency alert sent. Help is on the way.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F3FB),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: Semantics(
+          label: 'Emergency alert button',
+          button: true,
+          hint:
+              'Double tap to send an emergency alert to your doctor and contacts',
+          child: Focus(
+            onFocusChange: (hasFocus) {
+              if (hasFocus && accessibility.voiceAssistantEnabled) {
+                VoiceAssistantService.speak(
+                  'Emergency alert button. Double tap to get urgent help.',
+                );
+              }
+            },
+            child: AnimatedBuilder(
+              animation: _pulse,
+              builder: (context, child) {
+                return Transform.scale(scale: _pulse.value, child: child);
+              },
+              child: SizedBox(
+                width: double.infinity,
+                height: 58,
+                child: ElevatedButton.icon(
+                  onPressed: () => _confirmAndSendAlert(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    foregroundColor: Colors.white,
+                    elevation: 6,
+                    shadowColor: Colors.red.withOpacity(0.4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  icon: const Icon(Icons.sos_rounded, size: 26),
+                  label: const Text(
+                    'EMERGENCY ALERT',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ---------------------------------------------------------------------
+/// Doctor Dashboard (kept simple, unchanged in spirit)
+/// ---------------------------------------------------------------------
+class _DoctorDashboard extends StatelessWidget {
+  const _DoctorDashboard({required this.user});
+
+  final UserAccount user;
+
+  @override
+  Widget build(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+    final greeting = _timeOfDayGreeting();
+    final welcomeMessage =
+        '$greeting, Dr. ${user.username}! Welcome to your dashboard.';
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak(welcomeMessage);
+      }
+    });
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F3FB),
+      appBar: AppBar(
+        title: const Text('Doctor Dashboard'),
+        actions: const [AccessibilityButton()],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Doctor Dashboard',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    welcomeMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Your dashboard is ready.'),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({
+    super.key,
+    required this.accounts,
+    required this.onLoginSuccess,
+    required this.onAccountCreated,
+  });
+
+  final List<UserAccount> accounts;
+  final ValueChanged<UserAccount> onLoginSuccess;
+  final ValueChanged<UserAccount> onAccountCreated;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -244,7 +855,7 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
@@ -259,12 +870,44 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    final welcomeMessage = 'Welcome, $username!';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(welcomeMessage)));
-    if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
-      VoiceAssistantService.speak(welcomeMessage);
+    try {
+      final response = await UserApiService.loginUser(
+        username: username,
+        password: password,
+      );
+
+      final matchedAccount = UserAccount(
+        username: response['username']?.toString() ?? username,
+        password: password,
+        role: response['role']?.toString() ?? 'disabled',
+      );
+
+      widget.onLoginSuccess(matchedAccount);
+
+      final welcomeMessage = 'Welcome, ${matchedAccount.username}!';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(welcomeMessage)));
+      if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+        VoiceAssistantService.speak(welcomeMessage);
+      }
+
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DashboardPage(user: matchedAccount),
+        ),
+        (route) => false,
+      );
+    } catch (e) {
+      final message = 'Unable to login. ${e.toString()}';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+      if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+        VoiceAssistantService.speak(message);
+      }
     }
   }
 
@@ -477,8 +1120,9 @@ class _LoginPageState extends State<LoginPage> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) =>
-                                        const CreateAccountPage(),
+                                    builder: (context) => CreateAccountPage(
+                                      onAccountCreated: widget.onAccountCreated,
+                                    ),
                                   ),
                                 );
                               },
@@ -502,7 +1146,9 @@ class _LoginPageState extends State<LoginPage> {
 }
 
 class CreateAccountPage extends StatefulWidget {
-  const CreateAccountPage({super.key});
+  const CreateAccountPage({super.key, required this.onAccountCreated});
+
+  final ValueChanged<UserAccount> onAccountCreated;
 
   @override
   State<CreateAccountPage> createState() => _CreateAccountPageState();
@@ -587,6 +1233,54 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
     if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
       VoiceAssistantService.speak(message);
+    }
+  }
+
+  Future<void> _createAccount() async {
+    final role = _isDoctorForm ? 'doctor' : 'disabled';
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+
+    if (username.isEmpty || password.isEmpty) {
+      _showMessage('Please enter a username and password.');
+      return;
+    }
+
+    if (!_isDoctorForm && !_validateDisabledForm()) {
+      return;
+    }
+
+    if (_isDoctorForm && !_validateDoctorForm()) {
+      return;
+    }
+
+    try {
+      final response = await UserApiService.registerUser(
+        username: username,
+        password: password,
+        role: role,
+        firstName: _firstNameController.text.trim(),
+        middleName: _middleNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        email: _emailController.text.trim(),
+        area: _selectedArea ?? '',
+        registeredDoctor: _selectedDoctor,
+        disabilityType: _selectedDisabilityType,
+        specialization: _selectedSpecialization,
+      );
+
+      final account = UserAccount(
+        username: response['username']?.toString() ?? username,
+        password: password,
+        role: response['role']?.toString() ?? role,
+      );
+
+      widget.onAccountCreated(account);
+      _showMessage('Account created successfully.');
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (e) {
+      _showMessage('Unable to save account: ${e.toString()}');
     }
   }
 
@@ -868,13 +1562,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                               }
                             },
                             child: ElevatedButton(
-                              onPressed: () {
-                                if (_validateDisabledForm()) {
-                                  _showMessage(
-                                    'Disabled user account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
-                                  );
-                                }
-                              },
+                              onPressed: _createAccount,
                               child: const Text('Create Disabled User Account'),
                             ),
                           ),
@@ -939,13 +1627,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                               }
                             },
                             child: ElevatedButton(
-                              onPressed: () {
-                                if (_validateDoctorForm()) {
-                                  _showMessage(
-                                    'Doctor account created for ${_firstNameController.text.trim()} ${_lastNameController.text.trim()}.',
-                                  );
-                                }
-                              },
+                              onPressed: _createAccount,
                               child: const Text('Create Doctor Account'),
                             ),
                           ),
