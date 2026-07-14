@@ -9,12 +9,17 @@ class DashboardPage extends StatelessWidget {
   const DashboardPage({
     super.key,
     required this.user,
+    required this.allAccounts,
     required this.alerts,
     required this.onAlertSent,
     required this.onAlertAcknowledged,
   });
 
   final UserAccount user;
+
+  /// Every registered account (both doctors and disabled users), so each
+  /// dashboard can resolve the doctor <-> patient relationship.
+  final List<UserAccount> allAccounts;
   final List<EmergencyAlert> alerts;
   final ValueChanged<EmergencyAlert> onAlertSent;
   final ValueChanged<String> onAlertAcknowledged;
@@ -27,8 +32,13 @@ class DashboardPage extends StatelessWidget {
         ? DoctorDashboard(
             user: user,
             alerts: alerts,
+            allAccounts: allAccounts,
             onAlertAcknowledged: onAlertAcknowledged,
           )
-        : DisabledUserDashboard(user: user, onAlertSent: onAlertSent);
+        : DisabledUserDashboard(
+            user: user,
+            allAccounts: allAccounts,
+            onAlertSent: onAlertSent,
+          );
   }
 }

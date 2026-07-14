@@ -7,7 +7,7 @@ void main() {
       id: 'alert-1',
       patientName: 'Jane Doe',
       latitude: 6.5244,
-      longitude: 3.3792,
+      longitude: 3.3792, patientUsername: '',
     );
 
     expect(alert.latitude, 6.5244);

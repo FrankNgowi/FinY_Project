@@ -10,7 +10,7 @@ class UserApiService {
 
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE $_tableName (
@@ -25,11 +25,38 @@ class UserApiService {
             area TEXT,
             registeredDoctor TEXT,
             disabilityType TEXT,
-            specialization TEXT
+            otherDisabilityDetail TEXT,
+            specialization TEXT,
+            otherSpecializationDetail TEXT
           )
         ''');
       },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE $_tableName ADD COLUMN otherDisabilityDetail TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE $_tableName ADD COLUMN otherSpecializationDetail TEXT',
+          );
+        }
+      },
     );
+  }
+
+  /// Every registered account, doctors and disabled users alike. Called on
+  /// app startup so the in-memory account list (which drives the
+  /// "Registered Doctor" dropdown, "My Doctor", and "My Patients") survives
+  /// an app restart instead of resetting to empty every time.
+  static Future<List<Map<String, dynamic>>> getAllUsers({
+    String? databaseName,
+  }) async {
+    final db = await _openDatabase(databaseName);
+    try {
+      return await db.query(_tableName);
+    } finally {
+      await db.close();
+    }
   }
 
   static Future<Map<String, dynamic>> registerUser({
@@ -44,7 +71,9 @@ class UserApiService {
     String? databaseName,
     String? registeredDoctor,
     String? disabilityType,
+    String? otherDisabilityDetail,
     String? specialization,
+    String? otherSpecializationDetail,
   }) async {
     final db = await _openDatabase(databaseName);
 
@@ -71,7 +100,9 @@ class UserApiService {
         'area': area,
         'registeredDoctor': registeredDoctor,
         'disabilityType': disabilityType,
+        'otherDisabilityDetail': otherDisabilityDetail,
         'specialization': specialization,
+        'otherSpecializationDetail': otherSpecializationDetail,
       });
 
       return {
@@ -86,7 +117,9 @@ class UserApiService {
         'area': area,
         'registeredDoctor': registeredDoctor,
         'disabilityType': disabilityType,
+        'otherDisabilityDetail': otherDisabilityDetail,
         'specialization': specialization,
+        'otherSpecializationDetail': otherSpecializationDetail,
       };
     } finally {
       await db.close();
@@ -125,7 +158,9 @@ class UserApiService {
         'area': row['area'],
         'registeredDoctor': row['registeredDoctor'],
         'disabilityType': row['disabilityType'],
+        'otherDisabilityDetail': row['otherDisabilityDetail'],
         'specialization': row['specialization'],
+        'otherSpecializationDetail': row['otherSpecializationDetail'],
       };
     } finally {
       await db.close();

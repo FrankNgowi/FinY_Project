@@ -36,6 +36,33 @@ class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
   bool _isLoggingIn = false;
+  bool _hasAnnouncedScreen = false;
+  DateTime? _lastBackPressAt;
+
+  // Login is the app's root screen, so a single system back press here
+  // exits the app — that's normal Android behavior, not a bug. This just
+  // adds a friendlier "press back again to exit" confirmation instead of
+  // exiting immediately on the first press.
+  Future<bool> _handleBackPress() async {
+    final now = DateTime.now();
+    if (_lastBackPressAt == null ||
+        now.difference(_lastBackPressAt!) > const Duration(seconds: 2)) {
+      _lastBackPressAt = now;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Press back again to exit.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
+          VoiceAssistantService.speak('Press back again to exit.');
+        }
+      }
+      return false;
+    }
+    return true;
+  }
 
   @override
   void dispose() {
@@ -67,10 +94,35 @@ class _LoginPageState extends State<LoginPage> {
         password: password,
       );
 
+      final respondedUsername = response['username']?.toString() ?? username;
+
+      // The login API only returns the basics (username/role) in this demo
+      // backend. Merge in the richer profile — area, disability type,
+      // registered doctor, specialization — from the local account created
+      // at sign-up, so features like "My Doctor" and "My Patients" keep
+      // working after a fresh login instead of only right after sign-up.
+      UserAccount? existingRecord;
+      for (final account in widget.accounts) {
+        if (account.username == respondedUsername) {
+          existingRecord = account;
+          break;
+        }
+      }
+
       final matchedAccount = UserAccount(
-        username: response['username']?.toString() ?? username,
+        username: respondedUsername,
         password: password,
-        role: response['role']?.toString() ?? 'disabled',
+        role: response['role']?.toString() ?? existingRecord?.role ?? 'disabled',
+        firstName: existingRecord?.firstName ?? '',
+        middleName: existingRecord?.middleName ?? '',
+        lastName: existingRecord?.lastName ?? '',
+        email: existingRecord?.email ?? '',
+        area: existingRecord?.area,
+        disabilityType: existingRecord?.disabilityType,
+        otherDisabilityDetail: existingRecord?.otherDisabilityDetail,
+        registeredDoctorUsername: existingRecord?.registeredDoctorUsername,
+        specialization: existingRecord?.specialization,
+        otherSpecializationDetail: existingRecord?.otherSpecializationDetail,
       );
 
       widget.onLoginSuccess(matchedAccount);
@@ -89,6 +141,7 @@ class _LoginPageState extends State<LoginPage> {
         MaterialPageRoute(
           builder: (context) => DashboardPage(
             user: matchedAccount,
+            allAccounts: widget.accounts,
             alerts: widget.alerts,
             onAlertSent: widget.onAlertSent,
             onAlertAcknowledged: widget.onAlertAcknowledged,
@@ -114,15 +167,24 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && accessibility.voiceAssistantEnabled) {
+    // Announce the screen layout once — not on every rebuild — and let it
+    // queue behind any other announcement already in flight (e.g. the
+    // accessibility dialog's own "voice assistant enabled" confirmation)
+    // instead of cutting it off.
+    if (!_hasAnnouncedScreen && accessibility.voiceAssistantEnabled) {
+      _hasAnnouncedScreen = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         VoiceAssistantService.speak(
           'Login screen. Username field. Password field. Login button.',
+          interrupt: false,
         );
-      }
-    });
+      });
+    }
 
-    return Scaffold(
+    return WillPopScope(
+      onWillPop: _handleBackPress,
+      child: Scaffold(
       backgroundColor: const Color(0xFFF5F3FB),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -167,7 +229,7 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                     ),
-                  _BrandHeader(),
+                  const _BrandHeader(),
                   const SizedBox(height: 28),
                   Card(
                     elevation: 0,
@@ -227,6 +289,7 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
+      ),
       ),
     );
   }
@@ -443,6 +506,7 @@ class _LoginPageState extends State<LoginPage> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => CreateAccountPage(
+                    accounts: widget.accounts,
                     onAccountCreated: widget.onAccountCreated,
                   ),
                 ),
