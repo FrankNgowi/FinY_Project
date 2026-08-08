@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:dikonekti/models/emergency_alert.dart';
 import 'package:dikonekti/models/user_account.dart';
 import 'package:dikonekti/screens/dashboard_page.dart';
 import 'package:dikonekti/screens/login_page.dart';
-import 'package:dikonekti/services/alert_api_service.dart';
+import 'package:dikonekti/services/token_storage.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 
@@ -18,92 +17,48 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _voiceAssistantEnabled = false;
   double _textScaleFactor = 1.0;
-  final List<UserAccount> _accounts = [];
-  final List<EmergencyAlert> _alerts = [];
   UserAccount? _currentUser;
-  bool _isLoadingInitialData = true;
+  bool _isCheckingSession = true;
 
   @override
   void initState() {
     super.initState();
-    _loadPersistedData();
+    _restoreSession();
   }
 
-  /// Repopulates in-memory state from local storage on app start.
+  /// If a JWT is already stored from a previous login, re-fetch the
+  /// current profile from the server rather than making the person log
+  /// in again every time the app is closed and reopened. If the token is
+  /// missing, expired, or rejected, this just falls back to the login
+  /// screen — it never gets the app stuck on a loading spinner.
   ///
-  /// Without this, `_accounts` and `_alerts` always start empty, which is
-  /// exactly why registered doctors disappeared from "Create Account",
-  /// why a disabled user's own saved profile went blank after a fresh
-  /// login, and why doctors saw no alerts and no patients after reopening
-  /// the app — none of that data was ever actually gone, it just was
-  /// never being read back from SQLite.
-  Future<void> _loadPersistedData() async {
-    try {
-      final userRows = await UserApiService.getAllUsers();
-      final alerts = await AlertApiService.getAllAlerts();
+  /// This replaces the old `_loadPersistedData`/`AlertApiService`
+  /// approach entirely: there's no local accounts/alerts list to
+  /// rehydrate anymore, because nothing is cached locally — the backend
+  /// is the only source of truth, and each dashboard fetches what it
+  /// needs directly when it loads.
+  Future<void> _restoreSession() async {
+    final token = await TokenStorage.getAccessToken();
+    if (token == null) {
+      if (mounted) setState(() => _isCheckingSession = false);
+      return;
+    }
 
+    try {
+      final profile = await UserApiService.getCurrentProfile();
       if (!mounted) return;
       setState(() {
-        _accounts
-          ..clear()
-          ..addAll(userRows.map(_accountFromRow));
-        _alerts
-          ..clear()
-          ..addAll(alerts);
-        _isLoadingInitialData = false;
+        _currentUser = profile;
+        _isCheckingSession = false;
       });
     } catch (_) {
-      // If loading fails for any reason, start with empty state rather
-      // than leaving the app stuck on a loading screen forever.
-      if (mounted) setState(() => _isLoadingInitialData = false);
+      await TokenStorage.clear();
+      if (mounted) setState(() => _isCheckingSession = false);
     }
   }
 
-  UserAccount _accountFromRow(Map<String, dynamic> row) {
-    return UserAccount(
-      username: row['username'] as String? ?? '',
-      password: row['password'] as String? ?? '',
-      role: row['role'] as String? ?? 'disabled',
-      firstName: row['firstName'] as String? ?? '',
-      middleName: row['middleName'] as String? ?? '',
-      lastName: row['lastName'] as String? ?? '',
-      email: row['email'] as String? ?? '',
-      area: row['area'] as String?,
-      disabilityType: row['disabilityType'] as String?,
-      otherDisabilityDetail: row['otherDisabilityDetail'] as String?,
-      registeredDoctorUsername: row['registeredDoctor'] as String?,
-      specialization: row['specialization'] as String?,
-      otherSpecializationDetail: row['otherSpecializationDetail'] as String?,
-    );
-  }
-
   void _handleLoginSuccess(UserAccount account) {
-    setState(() {
-      _currentUser = account;
-    });
-  }
-
-  void _handleAccountCreated(UserAccount account) {
-    setState(() {
-      _accounts.add(account);
-    });
-  }
-
-  void _handleAlertSent(EmergencyAlert alert) {
-    setState(() {
-      _alerts.insert(0, alert);
-    });
-    // Best-effort persistence, fired after the alert is already live in the
-    // UI so a slow write never delays or blocks an emergency alert.
-    AlertApiService.saveAlert(alert);
-  }
-
-  void _handleAlertAcknowledged(String alertId) {
-    setState(() {
-      final alert = _alerts.firstWhere((a) => a.id == alertId);
-      alert.acknowledged = true;
-    });
-    AlertApiService.acknowledgeAlert(alertId);
+    setState(() => _currentUser = account);
   }
 
   @override
@@ -112,14 +67,10 @@ class _MyAppState extends State<MyApp> {
       voiceAssistantEnabled: _voiceAssistantEnabled,
       textScaleFactor: _textScaleFactor,
       setVoiceAssistantEnabled: (value) {
-        setState(() {
-          _voiceAssistantEnabled = value;
-        });
+        setState(() => _voiceAssistantEnabled = value);
       },
       setTextScaleFactor: (value) {
-        setState(() {
-          _textScaleFactor = value;
-        });
+        setState(() => _textScaleFactor = value);
       },
       child: MaterialApp(
         title: 'Dikonekti',
@@ -136,26 +87,16 @@ class _MyAppState extends State<MyApp> {
             child: child!,
           );
         },
-        home: _isLoadingInitialData
+        home: _isCheckingSession
             ? const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
+                backgroundColor: Color(0xFFF5F3FB),
+                body: Center(
+                  child: CircularProgressIndicator(color: Color(0xFF6750A4)),
+                ),
               )
             : _currentUser == null
-                ? LoginPage(
-                    accounts: _accounts,
-                    alerts: _alerts,
-                    onLoginSuccess: _handleLoginSuccess,
-                    onAccountCreated: _handleAccountCreated,
-                    onAlertSent: _handleAlertSent,
-                    onAlertAcknowledged: _handleAlertAcknowledged,
-                  )
-                : DashboardPage(
-                    user: _currentUser!,
-                    allAccounts: _accounts,
-                    alerts: _alerts,
-                    onAlertSent: _handleAlertSent,
-                    onAlertAcknowledged: _handleAlertAcknowledged,
-                  ),
+                ? LoginPage(onLoginSuccess: _handleLoginSuccess)
+                : DashboardPage(user: _currentUser!),
       ),
     );
   }

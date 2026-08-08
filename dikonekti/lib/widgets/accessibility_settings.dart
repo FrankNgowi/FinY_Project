@@ -62,7 +62,7 @@ class AccessibilityButton extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: selectedMode,
+                          initialValue: selectedMode,
                           decoration: const InputDecoration(
                             labelText: 'Accessibility mode',
                             border: OutlineInputBorder(),

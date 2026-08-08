@@ -1,65 +1,21 @@
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:dikonekti/models/user_account.dart';
 
+import 'api_client.dart';
+import 'token_storage.dart';
+
+/// Talks to the Django backend's /api/auth/, /api/me/, /api/doctors/, and
+/// /api/patients/ endpoints.
+///
+/// Method names and general shape intentionally mirror the old SQLite
+/// version so callers barely change, but note two real differences:
+/// - There's no local password storage anymore — auth state lives in the
+///   JWT tokens ([TokenStorage]), not a cached UserAccount.
+/// - registerUser/loginUser now throw [ApiException] with the server's
+///   own validation message on failure, instead of a generic Exception.
 class UserApiService {
-  static const String _tableName = 'users';
-
-  static Future<Database> _openDatabase([String? databaseName]) async {
-    final databasesPath = await getDatabasesPath();
-    final path = join(databasesPath, databaseName ?? 'dikonekti_users.db');
-
-    return openDatabase(
-      path,
-      version: 2,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE $_tableName (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL,
-            firstName TEXT,
-            middleName TEXT,
-            lastName TEXT,
-            email TEXT,
-            area TEXT,
-            registeredDoctor TEXT,
-            disabilityType TEXT,
-            otherDisabilityDetail TEXT,
-            specialization TEXT,
-            otherSpecializationDetail TEXT
-          )
-        ''');
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE $_tableName ADD COLUMN otherDisabilityDetail TEXT',
-          );
-          await db.execute(
-            'ALTER TABLE $_tableName ADD COLUMN otherSpecializationDetail TEXT',
-          );
-        }
-      },
-    );
-  }
-
-  /// Every registered account, doctors and disabled users alike. Called on
-  /// app startup so the in-memory account list (which drives the
-  /// "Registered Doctor" dropdown, "My Doctor", and "My Patients") survives
-  /// an app restart instead of resetting to empty every time.
-  static Future<List<Map<String, dynamic>>> getAllUsers({
-    String? databaseName,
-  }) async {
-    final db = await _openDatabase(databaseName);
-    try {
-      return await db.query(_tableName);
-    } finally {
-      await db.close();
-    }
-  }
-
-  static Future<Map<String, dynamic>> registerUser({
+  /// Registers a new account. Throws [ApiException] with a field-specific
+  /// message (e.g. "Username already exists") on validation failure.
+  static Future<UserAccount> registerUser({
     required String username,
     required String password,
     required String role,
@@ -68,102 +24,83 @@ class UserApiService {
     required String lastName,
     required String email,
     required String area,
-    String? databaseName,
-    String? registeredDoctor,
+    String? registeredDoctorUsername,
     String? disabilityType,
-    String? otherDisabilityDetail,
     String? specialization,
-    String? otherSpecializationDetail,
   }) async {
-    final db = await _openDatabase(databaseName);
-
-    try {
-      final existing = await db.query(
-        _tableName,
-        where: 'username = ?',
-        whereArgs: [username],
-        limit: 1,
-      );
-
-      if (existing.isNotEmpty) {
-        throw Exception('Username already exists');
-      }
-
-      final id = await db.insert(_tableName, {
+    final response = await ApiClient.postMap(
+      '/auth/register/',
+      {
         'username': username,
         'password': password,
         'role': role,
-        'firstName': firstName,
-        'middleName': middleName,
-        'lastName': lastName,
+        'first_name': firstName,
+        'middle_name': middleName,
+        'last_name': lastName,
         'email': email,
         'area': area,
-        'registeredDoctor': registeredDoctor,
-        'disabilityType': disabilityType,
-        'otherDisabilityDetail': otherDisabilityDetail,
+        'registered_doctor_username': registeredDoctorUsername,
+        'disability_type': disabilityType,
         'specialization': specialization,
-        'otherSpecializationDetail': otherSpecializationDetail,
-      });
+      },
+      requiresAuth: false,
+    );
 
-      return {
-        'id': id,
-        'username': username,
-        'password': password,
-        'role': role,
-        'firstName': firstName,
-        'middleName': middleName,
-        'lastName': lastName,
-        'email': email,
-        'area': area,
-        'registeredDoctor': registeredDoctor,
-        'disabilityType': disabilityType,
-        'otherDisabilityDetail': otherDisabilityDetail,
-        'specialization': specialization,
-        'otherSpecializationDetail': otherSpecializationDetail,
-      };
-    } finally {
-      await db.close();
-    }
+    await TokenStorage.saveTokens(
+      access: response['access'] as String,
+      refresh: response['refresh'] as String,
+    );
+
+    return UserAccount.fromJson(response['profile'] as Map<String, dynamic>);
   }
 
-  static Future<Map<String, dynamic>> loginUser({
+  /// Logs in and stores the resulting JWT pair. Throws [ApiException]
+  /// ("No active account found with the given credentials", from
+  /// SimpleJWT) on bad credentials.
+  static Future<UserAccount> loginUser({
     required String username,
     required String password,
-    String? databaseName,
   }) async {
-    final db = await _openDatabase(databaseName);
+    final response = await ApiClient.postMap(
+      '/auth/login/',
+      {'username': username, 'password': password},
+      requiresAuth: false,
+    );
 
-    try {
-      final rows = await db.query(
-        _tableName,
-        where: 'username = ? AND password = ?',
-        whereArgs: [username, password],
-        limit: 1,
-      );
+    await TokenStorage.saveTokens(
+      access: response['access'] as String,
+      refresh: response['refresh'] as String,
+    );
 
-      if (rows.isEmpty) {
-        throw Exception('Invalid username or password');
-      }
-
-      final row = rows.first;
-      return {
-        'id': row['id'],
-        'username': row['username'],
-        'password': row['password'],
-        'role': row['role'],
-        'firstName': row['firstName'],
-        'middleName': row['middleName'],
-        'lastName': row['lastName'],
-        'email': row['email'],
-        'area': row['area'],
-        'registeredDoctor': row['registeredDoctor'],
-        'disabilityType': row['disabilityType'],
-        'otherDisabilityDetail': row['otherDisabilityDetail'],
-        'specialization': row['specialization'],
-        'otherSpecializationDetail': row['otherSpecializationDetail'],
-      };
-    } finally {
-      await db.close();
-    }
+    return UserAccount.fromJson(response['profile'] as Map<String, dynamic>);
   }
+
+  /// Re-fetches the current profile — e.g. call this on app launch if a
+  /// token is already stored, instead of caching profile data locally.
+  static Future<UserAccount> getCurrentProfile() async {
+    final response = await ApiClient.getMap('/me/');
+    return UserAccount.fromJson(response);
+  }
+
+  /// Public — no auth required. Populates the sign-up "Registered Doctor"
+  /// dropdown.
+  static Future<List<UserAccount>> getAllDoctors() async {
+    final response = await ApiClient.getList('/doctors/');
+    return response
+        .cast<Map<String, dynamic>>()
+        .map(UserAccount.fromJson)
+        .toList();
+  }
+
+  /// The logged-in doctor's own patients. No username parameter — the
+  /// server scopes this to whoever the access token belongs to.
+  static Future<List<UserAccount>> getMyPatients() async {
+    final response = await ApiClient.getList('/patients/');
+    return response
+        .cast<Map<String, dynamic>>()
+        .map(UserAccount.fromJson)
+        .toList();
+  }
+
+  static Future<void> logout() => TokenStorage.clear();
 }

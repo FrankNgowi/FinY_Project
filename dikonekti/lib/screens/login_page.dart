@@ -1,30 +1,17 @@
 import 'package:flutter/material.dart';
 
-import 'package:dikonekti/models/emergency_alert.dart';
 import 'package:dikonekti/models/user_account.dart';
 import 'package:dikonekti/screens/create_account_page.dart';
 import 'package:dikonekti/screens/dashboard_page.dart';
+import 'package:dikonekti/services/api_client.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({
-    super.key,
-    required this.accounts,
-    required this.alerts,
-    required this.onLoginSuccess,
-    required this.onAccountCreated,
-    required this.onAlertSent,
-    required this.onAlertAcknowledged,
-  });
+  const LoginPage({super.key, required this.onLoginSuccess});
 
-  final List<UserAccount> accounts;
-  final List<EmergencyAlert> alerts;
   final ValueChanged<UserAccount> onLoginSuccess;
-  final ValueChanged<UserAccount> onAccountCreated;
-  final ValueChanged<EmergencyAlert> onAlertSent;
-  final ValueChanged<String> onAlertAcknowledged;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -89,45 +76,17 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoggingIn = true);
 
     try {
-      final response = await UserApiService.loginUser(
+      // loginUser now hits the Django backend, stores the JWT pair, and
+      // returns the full profile in one call — no more merging in a
+      // locally-cached record to recover fields the API didn't send back.
+      final account = await UserApiService.loginUser(
         username: username,
         password: password,
       );
 
-      final respondedUsername = response['username']?.toString() ?? username;
+      widget.onLoginSuccess(account);
 
-      // The login API only returns the basics (username/role) in this demo
-      // backend. Merge in the richer profile — area, disability type,
-      // registered doctor, specialization — from the local account created
-      // at sign-up, so features like "My Doctor" and "My Patients" keep
-      // working after a fresh login instead of only right after sign-up.
-      UserAccount? existingRecord;
-      for (final account in widget.accounts) {
-        if (account.username == respondedUsername) {
-          existingRecord = account;
-          break;
-        }
-      }
-
-      final matchedAccount = UserAccount(
-        username: respondedUsername,
-        password: password,
-        role: response['role']?.toString() ?? existingRecord?.role ?? 'disabled',
-        firstName: existingRecord?.firstName ?? '',
-        middleName: existingRecord?.middleName ?? '',
-        lastName: existingRecord?.lastName ?? '',
-        email: existingRecord?.email ?? '',
-        area: existingRecord?.area,
-        disabilityType: existingRecord?.disabilityType,
-        otherDisabilityDetail: existingRecord?.otherDisabilityDetail,
-        registeredDoctorUsername: existingRecord?.registeredDoctorUsername,
-        specialization: existingRecord?.specialization,
-        otherSpecializationDetail: existingRecord?.otherSpecializationDetail,
-      );
-
-      widget.onLoginSuccess(matchedAccount);
-
-      final welcomeMessage = 'Welcome, ${matchedAccount.username}!';
+      final welcomeMessage = 'Welcome, ${account.displayName}!';
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -139,18 +98,17 @@ class _LoginPageState extends State<LoginPage> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (context) => DashboardPage(
-            user: matchedAccount,
-            allAccounts: widget.accounts,
-            alerts: widget.alerts,
-            onAlertSent: widget.onAlertSent,
-            onAlertAcknowledged: widget.onAlertAcknowledged,
-          ),
+          builder: (context) => DashboardPage(user: account),
         ),
         (route) => false,
       );
     } catch (e) {
-      final message = 'Unable to login. ${e.toString()}';
+      // ApiException.toString() is already the server's own message (e.g.
+      // "No active account found with the given credentials") — no need
+      // to wrap it in a generic prefix.
+      final message = e is ApiException
+          ? e.message
+          : 'Unable to login. Please check your connection and try again.';
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -185,111 +143,111 @@ class _LoginPageState extends State<LoginPage> {
     return WillPopScope(
       onWillPop: _handleBackPress,
       child: Scaffold(
-      backgroundColor: const Color(0xFFF5F3FB),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: const [AccessibilityButton()],
-      ),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (accessibility.voiceAssistantEnabled)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.deepPurple.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.record_voice_over_rounded,
-                            size: 18,
-                            color: Colors.deepPurple.shade400,
-                          ),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text(
-                              'Voice assistant is enabled for accessibility support.',
-                              style: TextStyle(fontSize: 13),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const _BrandHeader(),
-                  const SizedBox(height: 28),
-                  Card(
-                    elevation: 0,
-                    color: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+        backgroundColor: const Color(0xFFF5F3FB),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          actions: const [AccessibilityButton()],
+        ),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (accessibility.voiceAssistantEnabled)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
                           children: [
-                            const Text(
-                              'Welcome back',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF2D2150),
+                            Icon(
+                              Icons.record_voice_over_rounded,
+                              size: 18,
+                              color: Colors.deepPurple.shade400,
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Voice assistant is enabled for accessibility support.',
+                                style: TextStyle(fontSize: 13),
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Sign in to continue to your dashboard.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            const SizedBox(height: 26),
-                            _buildTextField(
-                              controller: _usernameController,
-                              label: 'Username',
-                              icon: Icons.person_outline_rounded,
-                              accessibility: accessibility,
-                            ),
-                            const SizedBox(height: 16),
-                            _buildPasswordField(accessibility),
-                            const SizedBox(height: 24),
-                            _buildLoginButton(accessibility),
-                            const SizedBox(height: 20),
-                            _buildDivider(),
-                            const SizedBox(height: 16),
-                            _buildCreateAccountLink(accessibility),
                           ],
                         ),
                       ),
+                    const _BrandHeader(),
+                    const SizedBox(height: 28),
+                    Card(
+                      elevation: 0,
+                      color: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text(
+                                'Welcome back',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2D2150),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Sign in to continue to your dashboard.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                              const SizedBox(height: 26),
+                              _buildTextField(
+                                controller: _usernameController,
+                                label: 'Username',
+                                icon: Icons.person_outline_rounded,
+                                accessibility: accessibility,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildPasswordField(accessibility),
+                              const SizedBox(height: 24),
+                              _buildLoginButton(accessibility),
+                              const SizedBox(height: 20),
+                              _buildDivider(),
+                              const SizedBox(height: 16),
+                              _buildCreateAccountLink(accessibility),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                    const SizedBox(height: 12),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -505,10 +463,7 @@ class _LoginPageState extends State<LoginPage> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => CreateAccountPage(
-                    accounts: widget.accounts,
-                    onAccountCreated: widget.onAccountCreated,
-                  ),
+                  builder: (context) => const CreateAccountPage(),
                 ),
               );
             },

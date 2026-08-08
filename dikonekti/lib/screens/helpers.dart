@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 
 /// Returns a friendly, time-of-day aware greeting.
 String _timeOfDayGreeting() {

@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
 
 import 'package:dikonekti/models/user_account.dart';
+import 'package:dikonekti/screens/dashboard_page.dart';
+import 'package:dikonekti/services/api_client.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
 class CreateAccountPage extends StatefulWidget {
-  const CreateAccountPage({
-    super.key,
-    required this.accounts,
-    required this.onAccountCreated,
-  });
-
-  /// Every account registered so far, so the "Registered Doctor" dropdown
-  /// can be populated with real doctors instead of a fixed placeholder list.
-  final List<UserAccount> accounts;
-  final ValueChanged<UserAccount> onAccountCreated;
+  const CreateAccountPage({super.key});
 
   @override
   State<CreateAccountPage> createState() => _CreateAccountPageState();
@@ -69,6 +62,9 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   bool _isDoctorForm = false;
   bool _isSubmitting = false;
   bool _hasAnnouncedScreen = false;
+  bool _isLoadingDoctors = true;
+  String? _doctorLoadError;
+  List<UserAccount> _availableDoctors = [];
   String? _selectedArea;
   UserAccount? _selectedDoctor;
   String? _selectedDisabilityType;
@@ -77,10 +73,33 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   Color get _accentColor =>
       _isDoctorForm ? const Color(0xFF1D3557) : const Color(0xFF6750A4);
 
-  /// Real doctors who have registered so far — this is what populates the
-  /// "Registered Doctor" dropdown instead of a fixed placeholder list.
-  List<UserAccount> get _availableDoctors =>
-      widget.accounts.where((a) => a.isDoctor).toList();
+  @override
+  void initState() {
+    super.initState();
+    _loadDoctors();
+  }
+
+  /// Fetches the real, currently-registered doctors from the backend —
+  /// this replaces the old hardcoded name list and the in-memory account
+  /// list this screen used to require as a constructor param.
+  Future<void> _loadDoctors() async {
+    try {
+      final doctors = await UserApiService.getAllDoctors();
+      if (!mounted) return;
+      setState(() {
+        _availableDoctors = doctors;
+        _isLoadingDoctors = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _doctorLoadError = e is ApiException
+            ? e.message
+            : 'Could not load the list of doctors right now.';
+        _isLoadingDoctors = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -106,8 +125,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   }
 
   static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_.]{4,20}$');
-  static final RegExp _emailPattern =
-      RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+  static final RegExp _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 
   /// Returns an error message for the current username/password, or null
   /// if they're valid. Shared between both account types.
@@ -150,54 +168,55 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       return;
     }
 
+    // The API stores disability type / specialization as a single flat
+    // field — there's no separate "other" column. So if "Others" was
+    // picked, fold the free-text detail directly into the value we send
+    // instead of sending the literal word "Others".
+    final resolvedDisabilityType = _isDoctorForm
+        ? null
+        : (_selectedDisabilityType == 'Others'
+            ? _otherDisabilityController.text.trim()
+            : _selectedDisabilityType);
+    final resolvedSpecialization = _isDoctorForm
+        ? (_selectedSpecialization == 'Others'
+            ? _otherSpecializationController.text.trim()
+            : _selectedSpecialization)
+        : null;
+
     setState(() => _isSubmitting = true);
 
     try {
-      final response = await UserApiService.registerUser(
+      final account = await UserApiService.registerUser(
         username: username,
         password: password,
         role: role,
         firstName: _firstNameController.text.trim(),
         middleName: _middleNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
+        email: email,
         area: _selectedArea ?? '',
-        registeredDoctor: _selectedDoctor?.username,
-        disabilityType: _isDoctorForm ? null : _selectedDisabilityType,
-        otherDisabilityDetail: _isDoctorForm
-            ? null
-            : _otherDisabilityController.text.trim(),
-        specialization: _isDoctorForm ? _selectedSpecialization : null,
-        otherSpecializationDetail: _isDoctorForm
-            ? _otherSpecializationController.text.trim()
-            : null,
+        registeredDoctorUsername:
+            _isDoctorForm ? null : _selectedDoctor?.username,
+        disabilityType: resolvedDisabilityType,
+        specialization: resolvedSpecialization,
       );
 
-      final account = UserAccount(
-        username: response['username']?.toString() ?? username,
-        password: password,
-        role: response['role']?.toString() ?? role,
-        firstName: _firstNameController.text.trim(),
-        middleName: _middleNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
-        area: _selectedArea,
-        disabilityType: _isDoctorForm ? null : _selectedDisabilityType,
-        otherDisabilityDetail:
-            _isDoctorForm ? null : _otherDisabilityController.text.trim(),
-        registeredDoctorUsername: _isDoctorForm ? null : _selectedDoctor?.username,
-        specialization: _isDoctorForm ? _selectedSpecialization : null,
-        otherSpecializationDetail: _isDoctorForm
-            ? _otherSpecializationController.text.trim()
-            : null,
-      );
-
-      widget.onAccountCreated(account);
       _showMessage('Account created successfully.');
       if (!mounted) return;
-      Navigator.of(context).pop();
+
+      // Registration already returns a token pair — the account is
+      // effectively logged in server-side already — so go straight to the
+      // dashboard instead of sending the person back to re-type their
+      // credentials on the login screen.
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => DashboardPage(user: account)),
+        (route) => false,
+      );
     } catch (e) {
-      _showMessage('Unable to save account: ${e.toString()}');
+      final message = e is ApiException
+          ? e.message
+          : 'Unable to save account. Please check your connection and try again.';
+      _showMessage(message);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -216,9 +235,9 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       return false;
     }
 
-    // Only require a doctor selection if there's actually a doctor to pick —
-    // otherwise a brand-new deployment with zero doctors would permanently
-    // block disabled users from signing up at all.
+    // Only require a doctor selection if there's actually a doctor to pick
+    // — otherwise a brand-new deployment with zero doctors would
+    // permanently block disabled users from signing up at all.
     if (_availableDoctors.isNotEmpty && _selectedDoctor == null) {
       _showMessage('Please select your registered doctor.');
       return false;
@@ -345,7 +364,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       child: Semantics(
         label: '$label dropdown',
         child: DropdownButtonFormField<T>(
-          value: value,
+          initialValue: value,
           isExpanded: true,
           decoration: InputDecoration(
             labelText: label,
@@ -384,11 +403,101 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     );
   }
 
+  Widget _buildDoctorField() {
+    if (_isLoadingDoctors) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Loading registered doctors…',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_doctorLoadError != null) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF4E5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.wifi_off_rounded,
+              size: 18,
+              color: Colors.orange.shade800,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Could not load doctors ($_doctorLoadError). You can still '
+                'create your account and add a doctor later from your '
+                'profile.',
+                style: TextStyle(fontSize: 12.5, color: Colors.orange.shade900),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_availableDoctors.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF4E5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: Colors.orange.shade800,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'No doctors have registered yet. You can still create your '
+                'account and add a doctor later from your profile.',
+                style: TextStyle(fontSize: 12.5, color: Colors.orange.shade900),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _buildDropdown<UserAccount>(
+      value: _selectedDoctor,
+      items: _availableDoctors,
+      label: 'Registered Doctor',
+      icon: Icons.medical_services_outlined,
+      itemLabelBuilder: (doctor) =>
+          '${doctor.displayName} · ${doctor.resolvedSpecialization}',
+      onChanged: (value) {
+        setState(() => _selectedDoctor = value);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDoctor = _isDoctorForm;
     final accessibility = AccessibilitySettings.of(context);
-    final availableDoctors = _availableDoctors;
 
     // Announce the screen once, not on every rebuild, and let it queue
     // behind anything already speaking instead of cutting it off.
@@ -609,48 +718,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                                 setState(() => _selectedArea = value);
                               },
                             ),
-                            if (availableDoctors.isEmpty)
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 14),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFF4E5),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      size: 18,
-                                      color: Colors.orange.shade800,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'No doctors have registered yet. You '
-                                        'can still create your account and '
-                                        'add a doctor later from your profile.',
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          color: Colors.orange.shade900,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            else
-                              _buildDropdown<UserAccount>(
-                                value: _selectedDoctor,
-                                items: availableDoctors,
-                                label: 'Registered Doctor',
-                                icon: Icons.medical_services_outlined,
-                                itemLabelBuilder: (doctor) =>
-                                    '${doctor.displayName} · ${doctor.resolvedSpecialization}',
-                                onChanged: (value) {
-                                  setState(() => _selectedDoctor = value);
-                                },
-                              ),
+                            _buildDoctorField(),
                             _buildDropdown<String>(
                               value: _selectedDisabilityType,
                               items: _disabilityTypes,
