@@ -209,7 +209,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       // dashboard instead of sending the person back to re-type their
       // credentials on the login screen.
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => DashboardPage(user: account)),
+        MaterialPageRoute(builder: (context) => DashboardPage(user: account, onLogout: () {  },)),
         (route) => false,
       );
     } catch (e) {

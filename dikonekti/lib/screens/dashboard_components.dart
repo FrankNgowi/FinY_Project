@@ -1,26 +1,89 @@
 import 'dart:async';
 
-import 'package:dikonekti/services/alert_api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:dikonekti/models/appointment.dart';
 import 'package:dikonekti/models/emergency_alert.dart';
 import 'package:dikonekti/models/user_account.dart';
 import 'package:dikonekti/services/api_client.dart';
+import 'package:dikonekti/services/appointment_api_service.dart';
+import 'package:dikonekti/services/alert_api_service.dart';
 import 'package:dikonekti/services/location_service.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
+import 'helpers.dart';
+
+/// Shared health-tip content used both by the tips sheet and by the voice
+/// announcement that reads it aloud — kept as one function so the two
+/// never drift out of sync with each other.
+List<String> _healthTipsFor({bool isDoctor = false, String? disabilityType}) {
+  if (isDoctor) {
+    return [
+      'Acknowledge alerts as soon as you\'ve made contact with the patient, '
+          'so they know help has been seen.',
+      'Keep your specialization and area up to date so patients can find '
+          'and reach the right doctor.',
+      'When a location comes through with an alert, confirm it on the map '
+          'before dispatching help.',
+      'If an alert has no GPS location, check the patient\'s area on their '
+          'profile and try to reach them directly.',
+    ];
+  }
+
+  final tips = <String>[
+    'Keep your registered doctor\'s details up to date from your profile.',
+    'Turn on location services so your doctor can find you quickly in an '
+        'emergency.',
+    'Charge your phone fully before heading out, especially in remote '
+        'areas.',
+    'Keep the emergency alert button easy to reach in your daily routine.',
+    'Stay hydrated and take any prescribed medication on schedule.',
+  ];
+
+  switch (disabilityType) {
+    case 'Vision':
+      tips.insert(
+        0,
+        'Turn on the voice assistant from Accessibility settings for '
+            'spoken guidance around the app.',
+      );
+      break;
+    case 'Hearing':
+      tips.insert(
+        0,
+        'Rely on on-screen text and visual alerts rather than sound cues '
+            'when using the app.',
+      );
+      break;
+    case 'Body Impairment':
+      tips.insert(
+        0,
+        'Plan routes in advance and note accessible entrances near your '
+            'area.',
+      );
+      break;
+    default:
+      break;
+  }
+  return tips;
+}
 
 /// ---------------------------------------------------------------------
 /// Disabled User Dashboard
 /// ---------------------------------------------------------------------
 class DisabledUserDashboard extends StatefulWidget {
-  const DisabledUserDashboard({super.key, required this.user});
+  const DisabledUserDashboard({
+    super.key,
+    required this.user,
+    required this.onLogout,
+  });
 
   final UserAccount user;
+  final VoidCallback onLogout;
 
   @override
   State<DisabledUserDashboard> createState() => _DisabledUserDashboardState();
@@ -29,9 +92,8 @@ class DisabledUserDashboard extends StatefulWidget {
 class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
   bool _hasAnnouncedWelcome = false;
 
-  // The doctor's summary now arrives embedded directly in the user's own
-  // profile response — no separate lookup against a locally-cached
-  // account list needed anymore.
+  // The doctor's summary arrives embedded directly in the user's own
+  // profile response — no separate lookup needed.
   DoctorSummary? get _myDoctor => widget.user.registeredDoctor;
 
   @override
@@ -57,7 +119,10 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
       backgroundColor: const Color(0xFFF5F3FB),
       appBar: AppBar(
         title: const Text('My Dashboard'),
-        actions: const [AccessibilityButton()],
+        actions: [
+          _LogoutButton(onLogout: widget.onLogout),
+          const AccessibilityButton(),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -95,6 +160,24 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
                           label: 'My Profile',
                           color: const Color(0xFF386641),
                           onTap: () => _showProfile(context),
+                        ),
+                        _QuickAction(
+                          icon: Icons.calendar_month_rounded,
+                          label: 'Schedule',
+                          color: const Color(0xFF457B9D),
+                          onTap: () => _showSchedule(context),
+                        ),
+                        _QuickAction(
+                          icon: Icons.chat_bubble_rounded,
+                          label: 'Messages',
+                          color: const Color(0xFF2A9D8F),
+                          onTap: () => _showMessages(context),
+                        ),
+                        _QuickAction(
+                          icon: Icons.note_alt_rounded,
+                          label: 'Care Notes',
+                          color: const Color(0xFFBC6C25),
+                          onTap: () => _showCareNotes(context),
                         ),
                         _QuickAction(
                           icon: Icons.tips_and_updates_rounded,
@@ -169,8 +252,10 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
 
     if (accessibility.voiceAssistantEnabled) {
       VoiceAssistantService.speak(
-        'Your doctor is ${doctor.displayName}, specializing in '
-        '${doctor.specialization ?? 'General Practice'}.',
+        'Your doctor. ${doctor.displayName}, specializing in '
+        '${doctor.specialization ?? 'General Practice'}, based in '
+        '${doctor.area ?? 'an unspecified area'}. '
+        '${doctor.email.isNotEmpty ? 'Email ${doctor.email}.' : ''}',
       );
     }
 
@@ -185,23 +270,38 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
 
   void _showProfile(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
+    final doctor = _myDoctor;
+
     if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('Opening your profile.');
+      final parts = <String>[
+        'Your profile.',
+        'Name: ${widget.user.displayName}.',
+        'Username: ${widget.user.username}.',
+        if (widget.user.email.isNotEmpty) 'Email: ${widget.user.email}.',
+        'Area: ${widget.user.area ?? 'not specified'}.',
+        'Disability type: ${widget.user.resolvedDisabilityType}.',
+        'Registered doctor: ${doctor?.displayName ?? 'not set'}.',
+      ];
+      VoiceAssistantService.speak(parts.join(' '));
     }
+
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => _ProfileSheet(user: widget.user, doctor: _myDoctor),
+      builder: (_) => _ProfileSheet(user: widget.user, doctor: doctor),
     );
   }
 
   void _showHealthTips(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
+    final tips = _healthTipsFor(disabilityType: widget.user.disabilityType);
+
     if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('Showing helpful health tips.');
+      VoiceAssistantService.speak('Health and safety tips. ${tips.join(' ')}');
     }
+
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -209,6 +309,71 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
       ),
       builder: (_) =>
           _HealthTipsSheet(disabilityType: widget.user.disabilityType),
+    );
+  }
+
+  void _showSchedule(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(
+        'Schedule. View your appointments or request a new one with your '
+        'doctor.',
+      );
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _ScheduleSheet(isDoctor: false),
+    );
+  }
+
+  void _showMessages(BuildContext context) {
+    _openComingSoon(
+      context,
+      icon: Icons.chat_bubble_rounded,
+      title: 'Messages',
+      description: 'You will be able to send and receive messages with '
+          'your doctor here once this feature is available.',
+      accentColor: const Color(0xFF2A9D8F),
+    );
+  }
+
+  void _showCareNotes(BuildContext context) {
+    _openComingSoon(
+      context,
+      icon: Icons.note_alt_rounded,
+      title: 'Care Notes',
+      description: 'You will be able to view care notes your doctor has '
+          'shared about you here once this feature is available.',
+      accentColor: const Color(0xFFBC6C25),
+    );
+  }
+
+  void _openComingSoon(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color accentColor,
+  }) {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak('$title. $description');
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _ComingSoonSheet(
+        icon: icon,
+        title: title,
+        description: description,
+        accentColor: accentColor,
+      ),
     );
   }
 
@@ -231,6 +396,73 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
     } else {
       return 'Good evening';
     }
+  }
+}
+
+/// Confirms, then logs out. Used in the AppBar of both dashboards.
+class _LogoutButton extends StatelessWidget {
+  const _LogoutButton({required this.onLogout});
+
+  final VoidCallback onLogout;
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(
+        'Log out button. Double tap to log out of your account.',
+      );
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(
+            Icons.logout_rounded,
+            color: Color(0xFF6750A4),
+            size: 32,
+          ),
+          title: const Text('Log Out?'),
+          content: const Text(
+            'You will need to sign in again to access your dashboard.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFC1121F),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Log Out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak('Logged out.');
+      }
+      onLogout();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Log out button',
+      button: true,
+      hint: 'Double tap to log out',
+      child: IconButton(
+        icon: const Icon(Icons.logout_rounded),
+        tooltip: 'Log out',
+        onPressed: () => _confirmLogout(context),
+      ),
+    );
   }
 }
 
@@ -354,8 +586,7 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-/// Shown from the "My Profile" quick action on both dashboards — the
-/// user's own saved details, plus their registered doctor for patients.
+/// Shown from the "My Profile" quick action on both dashboards.
 class _ProfileSheet extends StatelessWidget {
   const _ProfileSheet({required this.user, this.doctor});
 
@@ -478,66 +709,13 @@ class _HealthTipsSheet extends StatelessWidget {
   const _HealthTipsSheet({this.isDoctor = false, this.disabilityType});
 
   final bool isDoctor;
-
-  /// Only relevant for disabled users — tailors the tip list to their
-  /// disability type when one is on file.
   final String? disabilityType;
-
-  List<String> get _tips {
-    if (isDoctor) {
-      return [
-        'Acknowledge alerts as soon as you\'ve made contact with the '
-            'patient, so they know help has been seen.',
-        'Keep your specialization and area up to date so patients can '
-            'find and reach the right doctor.',
-        'When a location comes through with an alert, confirm it on the '
-            'map before dispatching help.',
-        'If an alert has no GPS location, check the patient\'s area on '
-            'their profile and try to reach them directly.',
-      ];
-    }
-
-    final tips = <String>[
-      'Keep your registered doctor\'s details up to date from your profile.',
-      'Turn on location services so your doctor can find you quickly in '
-          'an emergency.',
-      'Charge your phone fully before heading out, especially in remote '
-          'areas.',
-      'Keep the emergency alert button easy to reach in your daily '
-          'routine.',
-      'Stay hydrated and take any prescribed medication on schedule.',
-    ];
-
-    switch (disabilityType) {
-      case 'Vision':
-        tips.insert(
-          0,
-          'Turn on the voice assistant from Accessibility settings for '
-              'spoken guidance around the app.',
-        );
-        break;
-      case 'Hearing':
-        tips.insert(
-          0,
-          'Rely on on-screen text and visual alerts rather than sound '
-              'cues when using the app.',
-        );
-        break;
-      case 'Body Impairment':
-        tips.insert(
-          0,
-          'Plan routes in advance and note accessible entrances near '
-              'your area.',
-        );
-        break;
-      default:
-        break;
-    }
-    return tips;
-  }
 
   @override
   Widget build(BuildContext context) {
+    final tips =
+        _healthTipsFor(isDoctor: isDoctor, disabilityType: disabilityType);
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 14, 24, 28),
@@ -583,7 +761,7 @@ class _HealthTipsSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            for (final tip in _tips)
+            for (final tip in tips)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Row(
@@ -613,6 +791,535 @@ class _HealthTipsSheet extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Generic sheet for features that aren't built yet — Schedule, Messages,
+/// Care Notes — so tapping them explains what's coming instead of
+/// dead-ending on a snackbar, and the voice assistant can read the same
+/// explanation aloud.
+class _ComingSoonSheet extends StatelessWidget {
+  const _ComingSoonSheet({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.accentColor,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 14, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 18),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: accentColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D2150),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F3FB),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.construction_rounded,
+                    size: 18,
+                    color: accentColor,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'This feature is under construction and will be '
+                      'available in a future update.',
+                      style: TextStyle(fontSize: 12.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Real appointment scheduling — a disabled user can request a time with
+/// their doctor; the doctor sees requests routed to them and can confirm
+/// or decline. Both dashboards use the same sheet, parameterized by role.
+class _ScheduleSheet extends StatefulWidget {
+  const _ScheduleSheet({required this.isDoctor});
+
+  final bool isDoctor;
+
+  @override
+  State<_ScheduleSheet> createState() => _ScheduleSheetState();
+}
+
+class _ScheduleSheetState extends State<_ScheduleSheet> {
+  bool _isLoading = true;
+  String? _error;
+  List<Appointment> _appointments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+    try {
+      final appointments = await AppointmentApiService.getAppointments();
+      if (!mounted) return;
+      setState(() {
+        _appointments = appointments;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error =
+            e is ApiException ? e.message : 'Could not load your schedule.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _requestAppointment() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 180)),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 10, minute: 0),
+    );
+    if (time == null || !mounted) return;
+
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reason for visit'),
+          content: TextField(
+            controller: reasonController,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Follow-up checkup',
+            ),
+            maxLines: 2,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(reasonController.text.trim()),
+              child: const Text('Request'),
+            ),
+          ],
+        );
+      },
+    );
+    if (reason == null || !mounted) return;
+
+    final requestedTime = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    final accessibility = AccessibilitySettings.of(context);
+
+    try {
+      await AppointmentApiService.createAppointment(
+        requestedTime: requestedTime,
+        reason: reason,
+      );
+      if (!mounted) return;
+      const message = 'Appointment request sent to your doctor.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(message)));
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak(message);
+      }
+      _load();
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException
+          ? e.message
+          : 'Could not request the appointment. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak(message);
+      }
+    }
+  }
+
+  Future<void> _respond(Appointment appointment, String status) async {
+    final accessibility = AccessibilitySettings.of(context);
+    try {
+      await AppointmentApiService.updateStatus(appointment.id, status);
+      if (!mounted) return;
+      final message = status == 'confirmed'
+          ? 'Appointment with ${appointment.patientName} confirmed.'
+          : 'Appointment with ${appointment.patientName} declined.';
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak(message);
+      }
+      _load();
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is ApiException
+          ? e.message
+          : 'Could not update the appointment.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'confirmed':
+        return const Color(0xFF2A9D8F);
+      case 'declined':
+        return const Color(0xFFC1121F);
+      default:
+        return const Color(0xFFBC6C25);
+    }
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final local = dt.toLocal();
+    final date = '${local.day}/${local.month}/${local.year}';
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$date at $hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const accentColor = Color(0xFF457B9D);
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.calendar_month_rounded,
+                        color: accentColor,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Schedule',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2D2150),
+                        ),
+                      ),
+                    ),
+                    if (!widget.isDoctor)
+                      Semantics(
+                        label: 'Request appointment button',
+                        button: true,
+                        child: TextButton.icon(
+                          onPressed: _requestAppointment,
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Request'),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _error != null
+                          ? Center(
+                              child: Text(
+                                _error!,
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
+                            )
+                          : _appointments.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    widget.isDoctor
+                                        ? 'No appointment requests yet.'
+                                        : 'No appointments yet. Tap Request '
+                                            'to book one with your doctor.',
+                                    textAlign: TextAlign.center,
+                                    style:
+                                        TextStyle(color: Colors.grey.shade600),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  controller: scrollController,
+                                  itemCount: _appointments.length,
+                                  itemBuilder: (context, index) {
+                                    final appointment = _appointments[index];
+                                    return Semantics(
+                                      label: widget.isDoctor
+                                          ? 'Appointment request from '
+                                              '${appointment.patientName}, '
+                                              '${_formatDateTime(appointment.requestedTime)}, '
+                                              'status ${appointment.status}.'
+                                          : 'Appointment on '
+                                              '${_formatDateTime(appointment.requestedTime)}, '
+                                              'status ${appointment.status}.',
+                                      child: Container(
+                                        margin: const EdgeInsets.only(
+                                          bottom: 10,
+                                        ),
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: const Color(0xFFE7ECEF),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    widget.isDoctor
+                                                        ? appointment
+                                                            .patientName
+                                                        : _formatDateTime(
+                                                            appointment
+                                                                .requestedTime,
+                                                          ),
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 15,
+                                                      color: Color(0xFF14213D),
+                                                    ),
+                                                  ),
+                                                ),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: _statusColor(
+                                                      appointment.status,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                      12,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    appointment.status[0]
+                                                            .toUpperCase() +
+                                                        appointment.status
+                                                            .substring(1),
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              widget.isDoctor
+                                                  ? _formatDateTime(
+                                                      appointment
+                                                          .requestedTime,
+                                                    )
+                                                  : (appointment
+                                                          .reason.isNotEmpty
+                                                      ? appointment.reason
+                                                      : 'No reason given'),
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            if (widget.isDoctor &&
+                                                appointment
+                                                    .reason.isNotEmpty) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                appointment.reason,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            ],
+                                            if (widget.isDoctor &&
+                                                appointment.isPending) ...[
+                                              const SizedBox(height: 10),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: OutlinedButton(
+                                                      onPressed: () =>
+                                                          _respond(
+                                                        appointment,
+                                                        'declined',
+                                                      ),
+                                                      style: OutlinedButton
+                                                          .styleFrom(
+                                                        foregroundColor:
+                                                            const Color(
+                                                          0xFFC1121F,
+                                                        ),
+                                                      ),
+                                                      child: const Text(
+                                                        'Decline',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: FilledButton(
+                                                      onPressed: () =>
+                                                          _respond(
+                                                        appointment,
+                                                        'confirmed',
+                                                      ),
+                                                      style: FilledButton
+                                                          .styleFrom(
+                                                        backgroundColor:
+                                                            const Color(
+                                                          0xFF2A9D8F,
+                                                        ),
+                                                      ),
+                                                      child: const Text(
+                                                        'Confirm',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -705,9 +1412,6 @@ class _WelcomeHeader extends StatelessWidget {
 }
 
 /// Persistent emergency alert bar pinned to the bottom of the dashboard.
-/// Gently pulses to draw attention, requires a confirmation step before
-/// sending, and posts straight to the backend with a best-effort GPS fix
-/// so the doctor knows where to help.
 class _EmergencyAlertBar extends StatefulWidget {
   const _EmergencyAlertBar({required this.user});
 
@@ -822,10 +1526,6 @@ class _EmergencyAlertBarState extends State<_EmergencyAlertBar>
       if (!context.mounted) return;
       setState(() => _isSending = false);
 
-      // A failure here is a real, unresolved problem — unlike a missing
-      // GPS fix, this means the doctor was never notified at all, so the
-      // wording (and color) needs to say so plainly rather than sound
-      // like a soft warning.
       final message = e is ApiException
           ? 'Could not send alert: ${e.message}'
           : 'Could not send the alert. Please check your connection and '
@@ -924,14 +1624,17 @@ class _EmergencyAlertBarState extends State<_EmergencyAlertBar>
 }
 
 /// ---------------------------------------------------------------------
-/// Doctor Dashboard — welcome header, this doctor's own emergency alerts,
-/// and this doctor's own registered patients, all fetched live from the
-/// backend (which scopes both by the logged-in doctor automatically).
+/// Doctor Dashboard
 /// ---------------------------------------------------------------------
 class DoctorDashboard extends StatefulWidget {
-  const DoctorDashboard({super.key, required this.user});
+  const DoctorDashboard({
+    super.key,
+    required this.user,
+    required this.onLogout,
+  });
 
   final UserAccount user;
+  final VoidCallback onLogout;
 
   @override
   State<DoctorDashboard> createState() => _DoctorDashboardState();
@@ -950,10 +1653,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
   void initState() {
     super.initState();
     _loadData();
-    // There's no push/websocket layer yet, so this polling loop is how a
-    // doctor finds out about a new alert without manually pulling to
-    // refresh. 12s is a compromise between "feels live" and not hammering
-    // the API.
     _refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       _loadData(showSpinner: false);
     });
@@ -987,9 +1686,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
           .where((a) => !a.acknowledged && !_knownAlertIds.contains(a.id))
           .toList();
 
-      // Only announce on a refresh that found something genuinely new —
-      // not on the very first load, which would otherwise announce every
-      // pre-existing alert as if it just arrived.
       if (_knownAlertIds.isNotEmpty && newActiveAlerts.isNotEmpty) {
         final accessibility = AccessibilitySettings.of(context);
         if (accessibility.voiceAssistantEnabled) {
@@ -1072,7 +1768,10 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
       backgroundColor: const Color(0xFFF3F7F6),
       appBar: AppBar(
         title: const Text('Doctor Dashboard'),
-        actions: const [AccessibilityButton()],
+        actions: [
+          _LogoutButton(onLogout: widget.onLogout),
+          const AccessibilityButton(),
+        ],
       ),
       body: SafeArea(
         child: _isLoading
@@ -1289,28 +1988,19 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
                             icon: Icons.calendar_month_rounded,
                             label: 'Schedule',
                             color: const Color(0xFF457B9D),
-                            onTap: () => _showInfoSnack(
-                              context,
-                              'Appointment scheduling is coming soon.',
-                            ),
+                            onTap: () => _showSchedule(context),
                           ),
                           _QuickAction(
                             icon: Icons.chat_bubble_rounded,
                             label: 'Messages',
                             color: const Color(0xFF2A9D8F),
-                            onTap: () => _showInfoSnack(
-                              context,
-                              'Direct messaging is coming soon.',
-                            ),
+                            onTap: () => _showMessages(context),
                           ),
                           _QuickAction(
                             icon: Icons.note_alt_rounded,
                             label: 'Care Notes',
                             color: const Color(0xFFBC6C25),
-                            onTap: () => _showInfoSnack(
-                              context,
-                              'Care notes are coming soon.',
-                            ),
+                            onTap: () => _showCareNotes(context),
                           ),
                           _QuickAction(
                             icon: Icons.settings_accessibility_rounded,
@@ -1336,9 +2026,19 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
 
   void _showProfile(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
+
     if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('Opening your profile.');
+      final parts = <String>[
+        'Your profile.',
+        'Name: ${widget.user.displayName}.',
+        'Username: ${widget.user.username}.',
+        if (widget.user.email.isNotEmpty) 'Email: ${widget.user.email}.',
+        'Area: ${widget.user.area ?? 'not specified'}.',
+        'Specialization: ${widget.user.resolvedSpecialization}.',
+      ];
+      VoiceAssistantService.speak(parts.join(' '));
     }
+
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1350,9 +2050,12 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
 
   void _showHealthTips(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
+    final tips = _healthTipsFor(isDoctor: true);
+
     if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('Showing helpful tips.');
+      VoiceAssistantService.speak('Health and safety tips. ${tips.join(' ')}');
     }
+
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -1362,13 +2065,69 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
     );
   }
 
-  void _showInfoSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-    if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
-      VoiceAssistantService.speak(message);
+  void _showSchedule(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(
+        'Schedule. View and respond to appointment requests from your '
+        'patients.',
+      );
     }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => const _ScheduleSheet(isDoctor: true),
+    );
+  }
+
+  void _showMessages(BuildContext context) {
+    _openComingSoon(
+      context,
+      icon: Icons.chat_bubble_rounded,
+      title: 'Messages',
+      description: 'You will be able to send and receive messages with '
+          'your patients here once this feature is available.',
+      accentColor: const Color(0xFF2A9D8F),
+    );
+  }
+
+  void _showCareNotes(BuildContext context) {
+    _openComingSoon(
+      context,
+      icon: Icons.note_alt_rounded,
+      title: 'Care Notes',
+      description: 'You will be able to write and review notes about each '
+          'patient\'s care here once this feature is available.',
+      accentColor: const Color(0xFFBC6C25),
+    );
+  }
+
+  void _openComingSoon(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color accentColor,
+  }) {
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak('$title. $description');
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _ComingSoonSheet(
+        icon: icon,
+        title: title,
+        description: description,
+        accentColor: accentColor,
+      ),
+    );
   }
 
   String _timeOfDayGreeting() {
@@ -1738,11 +2497,6 @@ class _EmergencyAlertCard extends StatelessWidget {
   }
 }
 
-/// Always-visible location block on a doctor's alert card.
-///
-/// Either shows the GPS fix with quick actions, or explains plainly why
-/// there isn't one — most commonly because the patient's device had
-/// location services off or denied the permission when the alert was sent.
 class _AlertLocationSection extends StatelessWidget {
   const _AlertLocationSection({required this.alert, required this.onOpenMap});
 
@@ -1860,10 +2614,6 @@ class _AlertLocationSection extends StatelessWidget {
       );
     }
 
-    // No GPS fix attached to this alert. This can happen if the patient's
-    // device had location services turned off, denied the permission, or
-    // couldn't get a fix within the timeout — the alert is still sent
-    // immediately either way, so the doctor is never left with nothing.
     return Semantics(
       label: 'No GPS location for this alert. '
           '${alert.locationError ?? 'Location unavailable.'}',
@@ -1967,6 +2717,11 @@ class _QuickActionsGrid extends StatelessWidget {
           button: true,
           hint: 'Double tap to open ${action.label}',
           child: Focus(
+            // Announces just the label on keyboard/switch-access focus —
+            // the tap itself no longer announces "opened" separately,
+            // since each destination now speaks its own full content the
+            // moment it's opened, instead of racing two announcements
+            // against each other.
             onFocusChange: (hasFocus) {
               if (hasFocus && accessibility.voiceAssistantEnabled) {
                 VoiceAssistantService.speak(action.label);
@@ -1977,12 +2732,7 @@ class _QuickActionsGrid extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
-                onTap: () {
-                  if (accessibility.voiceAssistantEnabled) {
-                    VoiceAssistantService.speak('${action.label} opened.');
-                  }
-                  action.onTap();
-                },
+                onTap: action.onTap,
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(18),

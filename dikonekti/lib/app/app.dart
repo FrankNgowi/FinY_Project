@@ -28,15 +28,7 @@ class _MyAppState extends State<MyApp> {
 
   /// If a JWT is already stored from a previous login, re-fetch the
   /// current profile from the server rather than making the person log
-  /// in again every time the app is closed and reopened. If the token is
-  /// missing, expired, or rejected, this just falls back to the login
-  /// screen — it never gets the app stuck on a loading spinner.
-  ///
-  /// This replaces the old `_loadPersistedData`/`AlertApiService`
-  /// approach entirely: there's no local accounts/alerts list to
-  /// rehydrate anymore, because nothing is cached locally — the backend
-  /// is the only source of truth, and each dashboard fetches what it
-  /// needs directly when it loads.
+  /// in again every time the app is closed and reopened.
   Future<void> _restoreSession() async {
     final token = await TokenStorage.getAccessToken();
     if (token == null) {
@@ -59,6 +51,15 @@ class _MyAppState extends State<MyApp> {
 
   void _handleLoginSuccess(UserAccount account) {
     setState(() => _currentUser = account);
+  }
+
+  /// This is what was missing before: DashboardPage's logout button had
+  /// nowhere to actually report back to. Clearing the stored token AND
+  /// resetting _currentUser to null is what makes `build()` fall back to
+  /// showing LoginPage again.
+  Future<void> _handleLogout() async {
+    await UserApiService.logout();
+    if (mounted) setState(() => _currentUser = null);
   }
 
   @override
@@ -96,7 +97,10 @@ class _MyAppState extends State<MyApp> {
               )
             : _currentUser == null
                 ? LoginPage(onLoginSuccess: _handleLoginSuccess)
-                : DashboardPage(user: _currentUser!),
+                : DashboardPage(
+                    user: _currentUser!,
+                    onLogout: _handleLogout,
+                  ),
       ),
     );
   }
