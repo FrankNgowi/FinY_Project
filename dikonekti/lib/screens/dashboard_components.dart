@@ -10,8 +10,10 @@ import 'package:dikonekti/models/user_account.dart';
 import 'package:dikonekti/services/api_client.dart';
 import 'package:dikonekti/services/appointment_api_service.dart';
 import 'package:dikonekti/services/alert_api_service.dart';
+import 'package:dikonekti/services/emergency_alert_sender.dart';
 import 'package:dikonekti/services/location_service.dart';
 import 'package:dikonekti/services/user_api_service.dart';
+import 'package:dikonekti/services/voice_trigger_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
@@ -91,6 +93,24 @@ class DisabledUserDashboard extends StatefulWidget {
 
 class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
   bool _hasAnnouncedWelcome = false;
+  bool _isVoiceTriggerEnabled = false;
+  bool _isSendingVoiceAlert = false;
+  late final VoiceTriggerService _voiceTriggerService;
+
+  @override
+  void initState() {
+    super.initState();
+    _voiceTriggerService = VoiceTriggerService(
+      onTriggerWord: _handleVoiceTrigger,
+      onError: _handleVoiceError,
+    );
+  }
+
+  @override
+  void dispose() {
+    _voiceTriggerService.dispose();
+    super.dispose();
+  }
 
   // The doctor's summary arrives embedded directly in the user's own
   // profile response — no separate lookup needed.
@@ -137,6 +157,12 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
                       greeting: greeting,
                       username: widget.user.username,
                     ),
+                    const SizedBox(height: 16),
+                    _VoiceTriggerCard(
+                      isEnabled: _isVoiceTriggerEnabled,
+                      onChanged: _toggleVoiceTrigger,
+                    ),
+                    const SizedBox(height: 8),
                     const SizedBox(height: 24),
                     const Text(
                       'Quick Actions',
@@ -375,6 +401,75 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
         accentColor: accentColor,
       ),
     );
+  }
+
+  Future<void> _toggleVoiceTrigger(bool enabled) async {
+    final accessibility = AccessibilitySettings.of(context);
+
+    if (enabled) {
+      final started = await _voiceTriggerService.start();
+      if (!mounted) return;
+      if (started) {
+        setState(() => _isVoiceTriggerEnabled = true);
+        const message = 'Voice emergency trigger is on. Say nisaidie or '
+            'msaada at any time to send an alert.';
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text(message)));
+        if (accessibility.voiceAssistantEnabled) {
+          VoiceAssistantService.speak(message);
+        }
+      }
+    } else {
+      await _voiceTriggerService.stop();
+      if (!mounted) return;
+      setState(() => _isVoiceTriggerEnabled = false);
+      const message = 'Voice emergency trigger is off.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(message)));
+      if (accessibility.voiceAssistantEnabled) {
+        VoiceAssistantService.speak(message);
+      }
+    }
+  }
+
+  void _handleVoiceError(String message) {
+    if (!mounted) return;
+    setState(() => _isVoiceTriggerEnabled = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.orange.shade800),
+    );
+  }
+
+  Future<void> _handleVoiceTrigger(String matchedWord) async {
+    if (_isSendingVoiceAlert || !mounted) return;
+    setState(() => _isSendingVoiceAlert = true);
+
+    final accessibility = AccessibilitySettings.of(context);
+    VoiceAssistantService.speak(
+      'Emergency word detected. Sending alert to your doctor.',
+      interrupt: false,
+    );
+
+    final result = await EmergencyAlertSender.send(widget.user);
+
+    if (!mounted) return;
+    setState(() => _isSendingVoiceAlert = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message),
+        backgroundColor: !result.success
+            ? Colors.red.shade900
+            : result.noDoctorRegistered
+                ? Colors.orange.shade800
+                : Colors.red,
+      ),
+    );
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(result.message, interrupt: false);
+    }
   }
 
   void _showInfoSnack(BuildContext context, String message) {
@@ -1324,6 +1419,83 @@ class _ScheduleSheetState extends State<_ScheduleSheet> {
   }
 }
 
+/// Toggle shown on the disabled user's dashboard for hands-free emergency
+/// alerts triggered by saying "Nisaidie" or "Msaada".
+class _VoiceTriggerCard extends StatelessWidget {
+  const _VoiceTriggerCard({required this.isEnabled, required this.onChanged});
+
+  final bool isEnabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Voice emergency trigger. '
+          '${isEnabled ? 'On. Listening for the words nisaidie or msaada.' : 'Off.'}',
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isEnabled ? const Color(0xFFFFF0F0) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isEnabled
+                ? const Color(0xFFF3B4B4)
+                : const Color(0xFFE6E1F5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (isEnabled ? Colors.red : const Color(0xFF6750A4))
+                    .withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isEnabled ? Icons.mic_rounded : Icons.mic_none_rounded,
+                color: isEnabled ? Colors.red : const Color(0xFF6750A4),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Voice Emergency Trigger',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: isEnabled
+                          ? const Color(0xFFC1121F)
+                          : const Color(0xFF2D2150),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isEnabled
+                        ? 'Listening — say "Nisaidie" or "Msaada" to send '
+                            'an alert.'
+                        : 'Say "Nisaidie" or "Msaada" to send an alert '
+                            'hands-free.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: isEnabled,
+              onChanged: onChanged,
+              activeColor: Colors.red,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _WelcomeHeader extends StatelessWidget {
   const _WelcomeHeader({required this.greeting, required this.username});
 
@@ -1486,57 +1658,23 @@ class _EmergencyAlertBarState extends State<_EmergencyAlertBar>
       VoiceAssistantService.speak('Getting your location.', interrupt: false);
     }
 
-    final location = await LocationService.getCurrentLocation();
-    final noDoctorRegistered = widget.user.registeredDoctor == null;
+    final result = await EmergencyAlertSender.send(widget.user);
 
-    try {
-      await EmergencyAlertApiService.createAlert(
-        latitude: location.latitude,
-        longitude: location.longitude,
-        locationError: location.error,
-      );
+    if (!context.mounted) return;
+    setState(() => _isSending = false);
 
-      if (!context.mounted) return;
-      setState(() => _isSending = false);
-
-      final String message;
-      if (noDoctorRegistered) {
-        message = 'Emergency alert saved, but no doctor is registered to '
-            'your account yet, so no one has been notified. Please add a '
-            'doctor from your profile.';
-      } else if (location.hasCoordinates) {
-        message =
-            'Emergency alert sent with your location. Help is on the way.';
-      } else {
-        message = 'Emergency alert sent. We could not attach your location, '
-            'but your doctor has been notified.';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor:
-              noDoctorRegistered ? Colors.orange.shade800 : Colors.red,
-        ),
-      );
-      if (accessibility.voiceAssistantEnabled) {
-        VoiceAssistantService.speak(message, interrupt: false);
-      }
-    } catch (e) {
-      if (!context.mounted) return;
-      setState(() => _isSending = false);
-
-      final message = e is ApiException
-          ? 'Could not send alert: ${e.message}'
-          : 'Could not send the alert. Please check your connection and '
-              'try again immediately.';
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red.shade900),
-      );
-      if (accessibility.voiceAssistantEnabled) {
-        VoiceAssistantService.speak(message, interrupt: false);
-      }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.message),
+        backgroundColor: !result.success
+            ? Colors.red.shade900
+            : result.noDoctorRegistered
+                ? Colors.orange.shade800
+                : Colors.red,
+      ),
+    );
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(result.message, interrupt: false);
     }
   }
 
