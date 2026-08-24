@@ -20,7 +20,7 @@ class DoctorSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'display_name', 'email', 'area', 'specialization']
+        fields = ['username', 'display_name', 'email', 'area', 'specialization', 'phone_number']
 
     def get_display_name(self, obj):
         return _display_name(obj)
@@ -51,8 +51,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'username', 'role', 'display_name', 'first_name', 'middle_name',
-            'last_name', 'email', 'area', 'disability_type', 'specialization',
-            'registered_doctor',
+            'last_name', 'email', 'phone_number', 'area', 'disability_type',
+            'specialization', 'registered_doctor',
         ]
 
     def get_display_name(self, obj):
@@ -69,8 +69,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'username', 'password', 'role', 'first_name', 'middle_name',
-            'last_name', 'email', 'area', 'disability_type', 'specialization',
-            'registered_doctor_username',
+            'last_name', 'email', 'phone_number', 'area', 'disability_type',
+            'specialization', 'registered_doctor_username',
         ]
 
     def validate_password(self, value):
@@ -87,6 +87,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         if not attrs.get('area'):
             raise serializers.ValidationError({'area': 'Area is required.'})
+
+        if not attrs.get('phone_number'):
+            raise serializers.ValidationError(
+                {'phone_number': 'A phone number is required.'}
+            )
 
         if role == User.Role.DOCTOR:
             if not attrs.get('specialization'):

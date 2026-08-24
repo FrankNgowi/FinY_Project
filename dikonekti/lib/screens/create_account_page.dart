@@ -50,6 +50,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   final TextEditingController _middleNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
@@ -107,6 +108,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     _middleNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
+    _phoneController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _addressController.dispose();
@@ -126,6 +128,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
   static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_.]{4,20}$');
   static final RegExp _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+  static final RegExp _phonePattern = RegExp(r'^[0-9+\-\s]{7,15}$');
 
   /// Returns an error message for the current username/password, or null
   /// if they're valid. Shared between both account types.
@@ -157,6 +160,16 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     final email = _emailController.text.trim();
     if (email.isNotEmpty && !_emailPattern.hasMatch(email)) {
       _showMessage('Please enter a valid email address.');
+      return;
+    }
+
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      _showMessage('Please enter a phone number.');
+      return;
+    }
+    if (!_phonePattern.hasMatch(phone)) {
+      _showMessage('Please enter a valid phone number.');
       return;
     }
 
@@ -194,6 +207,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
         middleName: _middleNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
         email: email,
+        phoneNumber: phone,
         area: _selectedArea ?? '',
         registeredDoctorUsername:
             _isDoctorForm ? null : _selectedDoctor?.username,
@@ -364,7 +378,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       child: Semantics(
         label: '$label dropdown',
         child: DropdownButtonFormField<T>(
-          initialValue: value,
+          value: value,
           isExpanded: true,
           decoration: InputDecoration(
             labelText: label,
@@ -675,6 +689,12 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                             label: 'Email',
                             icon: Icons.email_outlined,
                             keyboardType: TextInputType.emailAddress,
+                          ),
+                          _buildTextField(
+                            controller: _phoneController,
+                            label: 'Phone Number',
+                            icon: Icons.phone_outlined,
+                            keyboardType: TextInputType.phone,
                           ),
                           _sectionHeader(
                             'Account Security',

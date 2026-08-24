@@ -19,6 +19,7 @@ class EmergencyAlert(models.Model):
     # Snapshotted from the patient at send-time, so the record still makes
     # sense even if the patient later edits their profile.
     patient_area = models.CharField(max_length=100, blank=True, null=True)
+    patient_phone_number = models.CharField(max_length=20, blank=True, null=True)
     disability_type = models.CharField(max_length=100, blank=True, null=True)
 
     latitude = models.FloatField(null=True, blank=True)

@@ -14,8 +14,8 @@ class EmergencyAlertSerializer(serializers.ModelSerializer):
         model = EmergencyAlert
         fields = [
             'id', 'patient_username', 'patient_name', 'patient_area',
-            'disability_type', 'latitude', 'longitude', 'location_error',
-            'timestamp', 'acknowledged',
+            'patient_phone_number', 'disability_type', 'latitude',
+            'longitude', 'location_error', 'timestamp', 'acknowledged',
         ]
         read_only_fields = ['id', 'timestamp', 'acknowledged']
 
@@ -35,12 +35,22 @@ class CreateEmergencyAlertSerializer(serializers.ModelSerializer):
         model = EmergencyAlert
         fields = ['latitude', 'longitude', 'location_error']
 
+    def validate(self, attrs):
+        patient = self.context['request'].user
+        if not patient.phone_number:
+            raise serializers.ValidationError(
+                'Please add a phone number to your profile before sending '
+                'an emergency alert — your doctor needs a way to reach you.'
+            )
+        return attrs
+
     def create(self, validated_data):
         patient = self.context['request'].user
         return EmergencyAlert.objects.create(
             patient=patient,
             doctor=patient.registered_doctor,
             patient_area=patient.area,
+            patient_phone_number=patient.phone_number,
             disability_type=patient.disability_type,
             **validated_data,
         )

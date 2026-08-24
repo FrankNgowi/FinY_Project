@@ -94,14 +94,12 @@ class _LoginPageState extends State<LoginPage> {
       if (AccessibilitySettings.of(context).voiceAssistantEnabled) {
         VoiceAssistantService.speak(welcomeMessage);
       }
-
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (context) => DashboardPage(user: account, onLogout: () {  },),
-        ),
-        (route) => false,
-      );
+      // No explicit navigation here on purpose: onLoginSuccess updates
+      // MyApp's _currentUser, which reactively swaps MaterialApp's home
+      // from LoginPage to DashboardPage. Explicitly pushing a route here
+      // too would create a second, disconnected route sitting on top that
+      // never reflects future state changes — which is exactly what
+      // previously made logout appear to do nothing until a full restart.
     } catch (e) {
       // ApiException.toString() is already the server's own message (e.g.
       // "No active account found with the given credentials") — no need

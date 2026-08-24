@@ -8,6 +8,7 @@ class DoctorSummary {
     this.email = '',
     this.area,
     this.specialization,
+    this.phoneNumber,
   });
 
   final String username;
@@ -15,6 +16,7 @@ class DoctorSummary {
   final String email;
   final String? area;
   final String? specialization;
+  final String? phoneNumber;
 
   factory DoctorSummary.fromJson(Map<String, dynamic> json) {
     return DoctorSummary(
@@ -24,6 +26,7 @@ class DoctorSummary {
       email: json['email'] as String? ?? '',
       area: json['area'] as String?,
       specialization: json['specialization'] as String?,
+      phoneNumber: json['phone_number'] as String?,
     );
   }
 }
@@ -42,6 +45,7 @@ class UserAccount {
     this.middleName = '',
     this.lastName = '',
     this.email = '',
+    this.phoneNumber,
     this.area,
     this.disabilityType,
     this.specialization,
@@ -57,6 +61,7 @@ class UserAccount {
   final String middleName;
   final String lastName;
   final String email;
+  final String? phoneNumber;
   final String? area;
 
   /// Only meaningful when [role] is a disabled user.
@@ -97,6 +102,7 @@ class UserAccount {
       middleName: json['middle_name'] as String? ?? '',
       lastName: json['last_name'] as String? ?? '',
       email: json['email'] as String? ?? '',
+      phoneNumber: json['phone_number'] as String?,
       area: json['area'] as String?,
       disabilityType: json['disability_type'] as String?,
       specialization: json['specialization'] as String?,

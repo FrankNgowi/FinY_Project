@@ -18,6 +18,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=10, choices=Role.choices)
     middle_name = models.CharField(max_length=150, blank=True, default='')
     area = models.CharField(max_length=100, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
 
     # Disabled-user-only. Free text: if the app's "Others" option was
     # picked, the resolved custom text is stored directly here rather than

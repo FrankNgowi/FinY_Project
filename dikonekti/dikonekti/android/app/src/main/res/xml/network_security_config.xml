@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain HTTP (not HTTPS) to your local dev server only — Android
+  blocks cleartext traffic by default from API 28 onward. Replace the IP
+  below with the same one you set in ApiClient.baseUrl. This does NOT
+  allow cleartext to any other domain, so it's safe to ship even if you
+  forget to remove it (though a production build should point at a real
+  HTTPS backend and can drop this file entirely).
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.1.4</domain>
+    </domain-config>
+</network-security-config>

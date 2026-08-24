@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:dikonekti/models/appointment.dart';
+import 'package:dikonekti/models/chat_message.dart';
 import 'package:dikonekti/models/emergency_alert.dart';
 import 'package:dikonekti/models/user_account.dart';
 import 'package:dikonekti/services/api_client.dart';
@@ -12,6 +13,7 @@ import 'package:dikonekti/services/appointment_api_service.dart';
 import 'package:dikonekti/services/alert_api_service.dart';
 import 'package:dikonekti/services/emergency_alert_sender.dart';
 import 'package:dikonekti/services/location_service.dart';
+import 'package:dikonekti/services/message_api_service.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/services/voice_trigger_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
@@ -281,6 +283,7 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
         'Your doctor. ${doctor.displayName}, specializing in '
         '${doctor.specialization ?? 'General Practice'}, based in '
         '${doctor.area ?? 'an unspecified area'}. '
+        '${doctor.phoneNumber != null && doctor.phoneNumber!.isNotEmpty ? 'Phone ${doctor.phoneNumber}.' : ''} '
         '${doctor.email.isNotEmpty ? 'Email ${doctor.email}.' : ''}',
       );
     }
@@ -304,6 +307,9 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
         'Name: ${widget.user.displayName}.',
         'Username: ${widget.user.username}.',
         if (widget.user.email.isNotEmpty) 'Email: ${widget.user.email}.',
+        if (widget.user.phoneNumber != null &&
+            widget.user.phoneNumber!.isNotEmpty)
+          'Phone: ${widget.user.phoneNumber}.',
         'Area: ${widget.user.area ?? 'not specified'}.',
         'Disability type: ${widget.user.resolvedDisabilityType}.',
         'Registered doctor: ${doctor?.displayName ?? 'not set'}.',
@@ -357,13 +363,31 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
   }
 
   void _showMessages(BuildContext context) {
-    _openComingSoon(
-      context,
-      icon: Icons.chat_bubble_rounded,
-      title: 'Messages',
-      description: 'You will be able to send and receive messages with '
-          'your doctor here once this feature is available.',
-      accentColor: const Color(0xFF2A9D8F),
+    final accessibility = AccessibilitySettings.of(context);
+    final doctor = _myDoctor;
+
+    if (doctor == null) {
+      const message = 'No doctor is registered to your account yet. Add '
+          'one from your profile to start messaging.';
+      _showInfoSnack(context, message);
+      return;
+    }
+
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak('Messages with ${doctor.displayName}.');
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _MessagesSheet(
+        isDoctor: false,
+        currentUsername: widget.user.username,
+        doctorSummary: doctor,
+      ),
     );
   }
 
@@ -638,6 +662,12 @@ class _DoctorInfoSheet extends StatelessWidget {
                 label: 'Email',
                 value: doctor.email,
               ),
+            if (doctor.phoneNumber != null && doctor.phoneNumber!.isNotEmpty)
+              _InfoRow(
+                icon: Icons.phone_outlined,
+                label: 'Phone',
+                value: doctor.phoneNumber!,
+              ),
           ],
         ),
       ),
@@ -768,6 +798,12 @@ class _ProfileSheet extends StatelessWidget {
                 icon: Icons.email_outlined,
                 label: 'Email',
                 value: user.email,
+              ),
+            if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty)
+              _InfoRow(
+                icon: Icons.phone_outlined,
+                label: 'Phone',
+                value: user.phoneNumber!,
               ),
             _InfoRow(
               icon: Icons.location_on_outlined,
@@ -994,6 +1030,482 @@ class _ComingSoonSheet extends StatelessWidget {
 /// Real appointment scheduling — a disabled user can request a time with
 /// their doctor; the doctor sees requests routed to them and can confirm
 /// or decline. Both dashboards use the same sheet, parameterized by role.
+/// Real doctor-patient messaging. A disabled user always talks to their
+/// one registered doctor, so they skip straight to the thread. A doctor
+/// may have several patients, so they pick one first.
+class _MessagesSheet extends StatefulWidget {
+  const _MessagesSheet({
+    required this.isDoctor,
+    required this.currentUsername,
+    this.patients = const [],
+    this.doctorSummary,
+  });
+
+  final bool isDoctor;
+  final String currentUsername;
+
+  /// Only used when [isDoctor] is true.
+  final List<UserAccount> patients;
+
+  /// Only used when [isDoctor] is false.
+  final DoctorSummary? doctorSummary;
+
+  @override
+  State<_MessagesSheet> createState() => _MessagesSheetState();
+}
+
+class _MessagesSheetState extends State<_MessagesSheet> {
+  UserAccount? _selectedPatient;
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        if (widget.isDoctor && _selectedPatient == null) {
+          return _PatientPicker(
+            patients: widget.patients,
+            onSelect: (patient) => setState(() => _selectedPatient = patient),
+            scrollController: scrollController,
+          );
+        }
+
+        final threadTitle = widget.isDoctor
+            ? _selectedPatient!.fullName
+            : (widget.doctorSummary?.displayName ?? 'Your Doctor');
+
+        // Keying by conversation partner ensures switching patients (via
+        // the back button) gets a fresh _MessageThreadState instead of
+        // reusing stale messages/timer from the previous selection.
+        return _MessageThread(
+          key: ValueKey(widget.isDoctor ? _selectedPatient!.username : 'self'),
+          title: threadTitle,
+          currentUsername: widget.currentUsername,
+          patientUsername: widget.isDoctor ? _selectedPatient!.username : null,
+          onBack:
+              widget.isDoctor ? () => setState(() => _selectedPatient = null) : null,
+          scrollController: scrollController,
+        );
+      },
+    );
+  }
+}
+
+class _PatientPicker extends StatelessWidget {
+  const _PatientPicker({
+    required this.patients,
+    required this.onSelect,
+    required this.scrollController,
+  });
+
+  final List<UserAccount> patients;
+  final ValueChanged<UserAccount> onSelect;
+  final ScrollController scrollController;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A9D8F).withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.chat_bubble_rounded,
+                    color: Color(0xFF2A9D8F),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Messages',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D2150),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: patients.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'No patients yet. Once someone registers with you, '
+                        'you can message them here.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    itemCount: patients.length,
+                    itemBuilder: (context, index) {
+                      final patient = patients[index];
+                      return Semantics(
+                        label: 'Message ${patient.fullName}',
+                        button: true,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                const Color(0xFF457B9D).withOpacity(0.12),
+                            child: Text(
+                              patient.fullName.isNotEmpty
+                                  ? patient.fullName[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
+                                color: Color(0xFF457B9D),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            patient.fullName,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: Text(patient.area ?? 'Area unknown'),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                          onTap: () => onSelect(patient),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageThread extends StatefulWidget {
+  const _MessageThread({
+    super.key,
+    required this.title,
+    required this.currentUsername,
+    required this.scrollController,
+    this.patientUsername,
+    this.onBack,
+  });
+
+  final String title;
+  final String currentUsername;
+  final ScrollController scrollController;
+
+  /// Null when the current user IS the disabled patient (thread is
+  /// implicitly with their own doctor). Set when the current user is a
+  /// doctor viewing a specific patient's thread.
+  final String? patientUsername;
+  final VoidCallback? onBack;
+
+  @override
+  State<_MessageThread> createState() => _MessageThreadState();
+}
+
+class _MessageThreadState extends State<_MessageThread> {
+  bool _isLoading = true;
+  String? _error;
+  List<ChatMessage> _messages = [];
+  final TextEditingController _bodyController = TextEditingController();
+  bool _isSending = false;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _load(showSpinner: false),
+    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _bodyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool showSpinner = true}) async {
+    if (showSpinner && mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+    try {
+      final messages = await MessageApiService.getMessages(
+        patientUsername: widget.patientUsername,
+      );
+      if (!mounted) return;
+      setState(() {
+        _messages = messages;
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is ApiException ? e.message : 'Could not load messages.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _send() async {
+    final body = _bodyController.text.trim();
+    if (body.isEmpty || _isSending) return;
+
+    setState(() => _isSending = true);
+    try {
+      await MessageApiService.sendMessage(
+        body: body,
+        recipientUsername: widget.patientUsername,
+      );
+      _bodyController.clear();
+      if (!mounted) return;
+      await _load(showSpinner: false);
+    } catch (e) {
+      if (!mounted) return;
+      final message =
+          e is ApiException ? e.message : 'Could not send message.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final local = dt.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 20, 10),
+            child: Row(
+              children: [
+                if (widget.onBack != null)
+                  Semantics(
+                    label: 'Back to patient list',
+                    button: true,
+                    child: IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      onPressed: widget.onBack,
+                    ),
+                  )
+                else
+                  const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF2D2150),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        ),
+                      )
+                    : _messages.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No messages yet. Say hello!',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: widget.scrollController,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final message = _messages[index];
+                              final isMine =
+                                  message.senderUsername == widget.currentUsername;
+                              return Align(
+                                alignment: isMine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Semantics(
+                                  label:
+                                      '${isMine ? 'You' : widget.title} said: '
+                                      '${message.body}, at ${_formatTime(message.timestamp)}.',
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    constraints: BoxConstraints(
+                                      maxWidth:
+                                          MediaQuery.of(context).size.width *
+                                              0.72,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isMine
+                                          ? const Color(0xFF6750A4)
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: const Radius.circular(16),
+                                        topRight: const Radius.circular(16),
+                                        bottomLeft:
+                                            Radius.circular(isMine ? 16 : 4),
+                                        bottomRight:
+                                            Radius.circular(isMine ? 4 : 16),
+                                      ),
+                                      border: isMine
+                                          ? null
+                                          : Border.all(
+                                              color: const Color(0xFFE7ECEF),
+                                            ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          message.body,
+                                          style: TextStyle(
+                                            color: isMine
+                                                ? Colors.white
+                                                : const Color(0xFF14213D),
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _formatTime(message.timestamp),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: isMine
+                                                ? Colors.white70
+                                                : Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      label: 'Message text field',
+                      child: TextField(
+                        controller: _bodyController,
+                        decoration: InputDecoration(
+                          hintText: 'Type a message…',
+                          filled: true,
+                          fillColor: const Color(0xFFF7F6FB),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                        ),
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Semantics(
+                    label: 'Send message button',
+                    button: true,
+                    child: IconButton(
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFF6750A4),
+                      ),
+                      icon: _isSending
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation(Colors.white),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.send_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                      onPressed: _isSending ? null : _send,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ScheduleSheet extends StatefulWidget {
   const _ScheduleSheet({required this.isDoctor});
 
@@ -2171,6 +2683,9 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         'Name: ${widget.user.displayName}.',
         'Username: ${widget.user.username}.',
         if (widget.user.email.isNotEmpty) 'Email: ${widget.user.email}.',
+        if (widget.user.phoneNumber != null &&
+            widget.user.phoneNumber!.isNotEmpty)
+          'Phone: ${widget.user.phoneNumber}.',
         'Area: ${widget.user.area ?? 'not specified'}.',
         'Specialization: ${widget.user.resolvedSpecialization}.',
       ];
@@ -2222,13 +2737,24 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
   }
 
   void _showMessages(BuildContext context) {
-    _openComingSoon(
-      context,
-      icon: Icons.chat_bubble_rounded,
-      title: 'Messages',
-      description: 'You will be able to send and receive messages with '
-          'your patients here once this feature is available.',
-      accentColor: const Color(0xFF2A9D8F),
+    final accessibility = AccessibilitySettings.of(context);
+    if (accessibility.voiceAssistantEnabled) {
+      VoiceAssistantService.speak(
+        'Messages. Select a patient to start a conversation.',
+      );
+    }
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _MessagesSheet(
+        isDoctor: true,
+        currentUsername: widget.user.username,
+        patients: _patients,
+      ),
     );
   }
 
@@ -2284,12 +2810,26 @@ class _PatientCard extends StatelessWidget {
 
   final UserAccount patient;
 
+  Future<void> _call() async {
+    final phone = patient.phoneNumber;
+    if (phone == null || phone.trim().isEmpty) return;
+    final uri = Uri(scheme: 'tel', path: phone.trim());
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final accessibility = AccessibilitySettings.of(context);
+    final hasPhone =
+        patient.phoneNumber != null && patient.phoneNumber!.trim().isNotEmpty;
+
     return Semantics(
       label:
           'Patient ${patient.fullName}, ${patient.resolvedDisabilityType}, '
-          '${patient.area ?? 'area unknown'}.',
+          '${patient.area ?? 'area unknown'}.'
+          '${hasPhone ? ' Phone ${patient.phoneNumber}.' : ''}',
       child: Container(
         padding: const EdgeInsets.all(14),
         margin: const EdgeInsets.only(bottom: 10),
@@ -2334,6 +2874,27 @@ class _PatientCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (hasPhone)
+              Semantics(
+                label: 'Call ${patient.fullName}',
+                button: true,
+                child: IconButton(
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFFE8F5EE),
+                  ),
+                  icon: const Icon(
+                    Icons.call_rounded,
+                    color: Color(0xFF2A9D8F),
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    if (accessibility.voiceAssistantEnabled) {
+                      VoiceAssistantService.speak('Calling ${patient.fullName}.');
+                    }
+                    _call();
+                  },
+                ),
+              ),
           ],
         ),
       ),
@@ -2491,6 +3052,15 @@ class _EmergencyAlertCard extends StatelessWidget {
     }
   }
 
+  Future<void> _callPatient() async {
+    final phone = alert.patientPhoneNumber;
+    if (phone == null || phone.trim().isEmpty) return;
+    final uri = Uri(scheme: 'tel', path: phone.trim());
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accessibility = AccessibilitySettings.of(context);
@@ -2612,6 +3182,54 @@ class _EmergencyAlertCard extends StatelessWidget {
                   if (alert.patientArea != null) alert.patientArea,
                 ].join(' · '),
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
+            if (alert.patientPhoneNumber != null &&
+                alert.patientPhoneNumber!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Semantics(
+                label: 'Call patient at ${alert.patientPhoneNumber}',
+                button: true,
+                child: InkWell(
+                  onTap: () {
+                    if (accessibility.voiceAssistantEnabled) {
+                      VoiceAssistantService.speak(
+                        'Calling ${alert.patientName}.',
+                      );
+                    }
+                    _callPatient();
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5EE),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.call_rounded,
+                          size: 16,
+                          color: Color(0xFF2A9D8F),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          alert.patientPhoneNumber!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF2A9D8F),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 12),

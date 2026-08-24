@@ -4,6 +4,7 @@ class EmergencyAlert {
     required this.patientUsername,
     required this.patientName,
     this.patientArea,
+    this.patientPhoneNumber,
     this.disabilityType,
     this.latitude,
     this.longitude,
@@ -16,6 +17,7 @@ class EmergencyAlert {
   final String patientUsername;
   final String patientName;
   final String? patientArea;
+  final String? patientPhoneNumber;
   final String? disabilityType;
   final double? latitude;
   final double? longitude;
@@ -45,6 +47,7 @@ class EmergencyAlert {
       patientUsername: json['patient_username'] as String? ?? '',
       patientName: json['patient_name'] as String? ?? '',
       patientArea: json['patient_area'] as String?,
+      patientPhoneNumber: json['patient_phone_number'] as String?,
       disabilityType: json['disability_type'] as String?,
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
