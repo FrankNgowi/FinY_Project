@@ -1,20 +1,28 @@
 import 'package:flutter/material.dart';
 
 import 'package:dikonekti/models/user_account.dart';
-import 'package:dikonekti/screens/dashboard_page.dart';
 import 'package:dikonekti/services/api_client.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
 class CreateAccountPage extends StatefulWidget {
-  const CreateAccountPage({super.key});
+  const CreateAccountPage({super.key, required this.onLoginSuccess});
+
+  /// Called after a successful registration — the account is already
+  /// logged in server-side (registration returns a token pair), so this
+  /// is the same callback LoginPage uses. MyApp's reactive home: swap
+  /// then takes care of showing the dashboard; this page just pops
+  /// itself off the stack to reveal it.
+  final ValueChanged<UserAccount> onLoginSuccess;
 
   @override
   State<CreateAccountPage> createState() => _CreateAccountPageState();
 }
 
 class _CreateAccountPageState extends State<CreateAccountPage> {
+  final _formKey = GlobalKey<FormState>();
+
   final List<String> _areas = [
     'Stone Town',
     'Mkokotoni',
@@ -26,9 +34,19 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     'Nungwi',
     'Kizimkazi',
     'Makunduchi',
-    'Wete',
-    'Koani',
-    'Micheweni',
+    'Chukwani',
+    'Kibweni',
+    'Airport',
+    'Buyu',
+    'Fumba',
+    'Kibweni',
+    'Mtoni',
+    'Mtoni Kijichi',
+    'Tunguu',
+    'jumbi',
+    'Kiwengwa',
+    'Others',
+
   ];
 
   final List<String> _disabilityTypes = [
@@ -70,6 +88,10 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   UserAccount? _selectedDoctor;
   String? _selectedDisabilityType;
   String? _selectedSpecialization;
+
+  static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_.]{4,20}$');
+  static final RegExp _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+  static final RegExp _phonePattern = RegExp(r'^[0-9+\-\s]{7,15}$');
 
   Color get _accentColor =>
       _isDoctorForm ? const Color(0xFF1D3557) : const Color(0xFF6750A4);
@@ -126,60 +148,32 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     }
   }
 
-  static final RegExp _usernamePattern = RegExp(r'^[a-zA-Z0-9_.]{4,20}$');
-  static final RegExp _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-  static final RegExp _phonePattern = RegExp(r'^[0-9+\-\s]{7,15}$');
-
-  /// Returns an error message for the current username/password, or null
-  /// if they're valid. Shared between both account types.
-  String? _validateCredentials(String username, String password) {
-    if (username.isEmpty || password.isEmpty) {
-      return 'Please enter a username and password.';
-    }
-    if (!_usernamePattern.hasMatch(username)) {
-      return 'Username must be 4-20 characters and contain only letters, '
-          'numbers, underscores, or periods (no spaces).';
-    }
-    if (password.length < 6) {
-      return 'Password must be at least 6 characters long.';
-    }
-    return null;
-  }
-
   Future<void> _createAccount() async {
+    // Runs every field's validator at once — every invalid field shows
+    // its own inline error simultaneously, instead of one snackbar at a
+    // time only ever mentioning the first problem found.
+    if (!_formKey.currentState!.validate()) {
+      _showMessage('Please fix the highlighted fields.');
+      return;
+    }
+
+    // Only require a doctor selection if there's actually a doctor to
+    // pick — otherwise a brand-new deployment with zero doctors would
+    // permanently block disabled users from signing up at all. This one
+    // check doesn't map cleanly onto a single field's validator since
+    // "required" depends on data loaded asynchronously from the server.
+    if (!_isDoctorForm &&
+        _availableDoctors.isNotEmpty &&
+        _selectedDoctor == null) {
+      _showMessage('Please select your registered doctor.');
+      return;
+    }
+
     final role = _isDoctorForm ? 'doctor' : 'disabled';
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-
-    final credentialError = _validateCredentials(username, password);
-    if (credentialError != null) {
-      _showMessage(credentialError);
-      return;
-    }
-
     final email = _emailController.text.trim();
-    if (email.isNotEmpty && !_emailPattern.hasMatch(email)) {
-      _showMessage('Please enter a valid email address.');
-      return;
-    }
-
     final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
-      _showMessage('Please enter a phone number.');
-      return;
-    }
-    if (!_phonePattern.hasMatch(phone)) {
-      _showMessage('Please enter a valid phone number.');
-      return;
-    }
-
-    if (!_isDoctorForm && !_validateDisabledForm()) {
-      return;
-    }
-
-    if (_isDoctorForm && !_validateDoctorForm()) {
-      return;
-    }
 
     // The API stores disability type / specialization as a single flat
     // field — there's no separate "other" column. So if "Others" was
@@ -219,13 +213,17 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       if (!mounted) return;
 
       // Registration already returns a token pair — the account is
-      // effectively logged in server-side already — so go straight to the
-      // dashboard instead of sending the person back to re-type their
-      // credentials on the login screen.
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => DashboardPage(user: account, onLogout: () {  },)),
-        (route) => false,
-      );
+      // already logged in server-side. Report that up via the same
+      // callback LoginPage uses (which updates MyApp's _currentUser and
+      // reactively swaps home: to DashboardPage), then just pop this
+      // page off the stack to reveal it underneath. Deliberately NOT
+      // doing our own Navigator.push here: an explicit push would create
+      // a second, disconnected DashboardPage instance that never
+      // reflects later state changes — which is exactly what previously
+      // made the logout button stop working after registering a new
+      // account.
+      widget.onLoginSuccess(account);
+      Navigator.of(context).pop();
     } catch (e) {
       final message = e is ApiException
           ? e.message
@@ -234,58 +232,6 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
-  }
-
-  bool _validateDisabledForm() {
-    if (_firstNameController.text.trim().isEmpty ||
-        _middleNameController.text.trim().isEmpty ||
-        _lastNameController.text.trim().isEmpty ||
-        _emailController.text.trim().isEmpty ||
-        _usernameController.text.trim().isEmpty ||
-        _passwordController.text.isEmpty ||
-        _selectedArea == null ||
-        _selectedDisabilityType == null) {
-      _showMessage('Please fill all required fields for Disabled User.');
-      return false;
-    }
-
-    // Only require a doctor selection if there's actually a doctor to pick
-    // — otherwise a brand-new deployment with zero doctors would
-    // permanently block disabled users from signing up at all.
-    if (_availableDoctors.isNotEmpty && _selectedDoctor == null) {
-      _showMessage('Please select your registered doctor.');
-      return false;
-    }
-
-    if (_selectedDisabilityType == 'Others' &&
-        _otherDisabilityController.text.trim().isEmpty) {
-      _showMessage('Please specify the disability type.');
-      return false;
-    }
-
-    return true;
-  }
-
-  bool _validateDoctorForm() {
-    if (_firstNameController.text.trim().isEmpty ||
-        _middleNameController.text.trim().isEmpty ||
-        _lastNameController.text.trim().isEmpty ||
-        _emailController.text.trim().isEmpty ||
-        _usernameController.text.trim().isEmpty ||
-        _passwordController.text.isEmpty ||
-        _selectedArea == null ||
-        _selectedSpecialization == null) {
-      _showMessage('Please fill all required fields for Doctor.');
-      return false;
-    }
-
-    if (_selectedSpecialization == 'Others' &&
-        _otherSpecializationController.text.trim().isEmpty) {
-      _showMessage('Please specify the specialization.');
-      return false;
-    }
-
-    return true;
   }
 
   Widget _sectionHeader(String title, IconData icon) {
@@ -316,6 +262,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     bool obscureText = false,
     TextInputType? keyboardType,
     Widget? suffixIcon,
+    String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -329,10 +276,12 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
               VoiceAssistantService.speak('$label field. Enter $label.');
             }
           },
-          child: TextField(
+          child: TextFormField(
             controller: controller,
             keyboardType: keyboardType,
             obscureText: obscureText,
+            validator: validator,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             onChanged: (value) {
               if (AccessibilitySettings.of(context).voiceAssistantEnabled &&
                   value.isNotEmpty) {
@@ -358,6 +307,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(color: _accentColor, width: 1.6),
               ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.redAccent, width: 1.4),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.redAccent, width: 1.6),
+              ),
             ),
           ),
         ),
@@ -372,6 +329,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
     required IconData icon,
     required ValueChanged<T?> onChanged,
     String Function(T)? itemLabelBuilder,
+    String? Function(T?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -380,6 +338,8 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
         child: DropdownButtonFormField<T>(
           value: value,
           isExpanded: true,
+          validator: validator,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           decoration: InputDecoration(
             labelText: label,
             filled: true,
@@ -392,6 +352,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide(color: _accentColor, width: 1.6),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Colors.redAccent, width: 1.4),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Colors.redAccent, width: 1.6),
             ),
           ),
           items: items.map((item) {
@@ -580,227 +548,305 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            width: 56,
-                            height: 56,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: _accentColor.withOpacity(0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.person_add_alt_1_rounded,
-                              color: _accentColor,
-                              size: 26,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          const Text(
-                            'Create Your Account',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF2D2150),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Tell us a bit about yourself to get started.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 22),
-                          Semantics(
-                            label: 'Account type selection',
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF0EEF8),
-                                borderRadius: BorderRadius.circular(14),
+                                color: _accentColor.withOpacity(0.12),
+                                shape: BoxShape.circle,
                               ),
-                              child: SegmentedButton<bool>(
-                                style: SegmentedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  selectedBackgroundColor: _accentColor,
-                                  selectedForegroundColor: Colors.white,
-                                  side: BorderSide.none,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
+                              child: Icon(
+                                Icons.person_add_alt_1_rounded,
+                                color: _accentColor,
+                                size: 26,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'Create Your Account',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2D2150),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Tell us a bit about yourself to get started.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            Semantics(
+                              label: 'Account type selection',
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0EEF8),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                segments: const [
-                                  ButtonSegment(
-                                    value: false,
-                                    label: Text('Disabled User'),
-                                    icon: Icon(Icons.accessibility_new_rounded),
+                                child: SegmentedButton<bool>(
+                                  style: SegmentedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    selectedBackgroundColor: _accentColor,
+                                    selectedForegroundColor: Colors.white,
+                                    side: BorderSide.none,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                  ButtonSegment(
-                                    value: true,
-                                    label: Text('Doctor'),
-                                    icon: Icon(Icons.medical_services_rounded),
-                                  ),
-                                ],
-                                selected: {_isDoctorForm},
-                                onSelectionChanged: (Set<bool> selection) {
+                                  segments: const [
+                                    ButtonSegment(
+                                      value: false,
+                                      label: Text('Disabled User'),
+                                      icon:
+                                          Icon(Icons.accessibility_new_rounded),
+                                    ),
+                                    ButtonSegment(
+                                      value: true,
+                                      label: Text('Doctor'),
+                                      icon: Icon(Icons.medical_services_rounded),
+                                    ),
+                                  ],
+                                  selected: {_isDoctorForm},
+                                  onSelectionChanged: (Set<bool> selection) {
+                                    setState(() {
+                                      _isDoctorForm = selection.first;
+                                    });
+                                    if (accessibility.voiceAssistantEnabled) {
+                                      VoiceAssistantService.speak(
+                                        selection.first
+                                            ? 'Doctor form selected.'
+                                            : 'Disabled user form selected.',
+                                      );
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            _sectionHeader(
+                              'Personal Information',
+                              Icons.badge_outlined,
+                            ),
+                            _buildTextField(
+                              controller: _firstNameController,
+                              label: 'First Name',
+                              icon: Icons.person_outline_rounded,
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                      ? 'Please enter your first name.'
+                                      : null,
+                            ),
+                            _buildTextField(
+                              controller: _middleNameController,
+                              label: 'Middle Name',
+                              icon: Icons.person_outline_rounded,
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                      ? 'Please enter your middle name.'
+                                      : null,
+                            ),
+                            _buildTextField(
+                              controller: _lastNameController,
+                              label: 'Last Name',
+                              icon: Icons.person_outline_rounded,
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                      ? 'Please enter your last name.'
+                                      : null,
+                            ),
+                            _buildTextField(
+                              controller: _emailController,
+                              label: 'Email',
+                              icon: Icons.email_outlined,
+                              keyboardType: TextInputType.emailAddress,
+                              validator: (value) {
+                                final v = value?.trim() ?? '';
+                                if (v.isEmpty) {
+                                  return 'Please enter your email address.';
+                                }
+                                if (!_emailPattern.hasMatch(v)) {
+                                  return 'Please enter a valid email address.';
+                                }
+                                return null;
+                              },
+                            ),
+                            _buildTextField(
+                              controller: _phoneController,
+                              label: 'Phone Number',
+                              icon: Icons.phone_outlined,
+                              keyboardType: TextInputType.phone,
+                              validator: (value) {
+                                final v = value?.trim() ?? '';
+                                if (v.isEmpty) {
+                                  return 'Please enter a phone number.';
+                                }
+                                if (!_phonePattern.hasMatch(v)) {
+                                  return 'Please enter a valid phone number.';
+                                }
+                                return null;
+                              },
+                            ),
+                            _sectionHeader(
+                              'Account Security',
+                              Icons.lock_outline_rounded,
+                            ),
+                            _buildTextField(
+                              controller: _usernameController,
+                              label: 'Username',
+                              icon: Icons.alternate_email_rounded,
+                              validator: (value) {
+                                final v = value?.trim() ?? '';
+                                if (v.isEmpty) {
+                                  return 'Please enter a username.';
+                                }
+                                if (!_usernamePattern.hasMatch(v)) {
+                                  return '4-20 characters: letters, numbers, '
+                                      'underscore, or period only (no spaces).';
+                                }
+                                return null;
+                              },
+                            ),
+                            _buildTextField(
+                              controller: _passwordController,
+                              label: 'Password',
+                              icon: Icons.lock_outline_rounded,
+                              obscureText: _obscurePassword,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter a password.';
+                                }
+                                if (value.length < 6) {
+                                  return 'At least 6 characters.';
+                                }
+                                return null;
+                              },
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: Colors.grey.shade600,
+                                ),
+                                onPressed: () {
                                   setState(() {
-                                    _isDoctorForm = selection.first;
+                                    _obscurePassword = !_obscurePassword;
                                   });
-                                  if (accessibility.voiceAssistantEnabled) {
-                                    VoiceAssistantService.speak(
-                                      selection.first
-                                          ? 'Doctor form selected.'
-                                          : 'Disabled user form selected.',
-                                    );
-                                  }
                                 },
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 22),
-                          _sectionHeader(
-                            'Personal Information',
-                            Icons.badge_outlined,
-                          ),
-                          _buildTextField(
-                            controller: _firstNameController,
-                            label: 'First Name',
-                            icon: Icons.person_outline_rounded,
-                          ),
-                          _buildTextField(
-                            controller: _middleNameController,
-                            label: 'Middle Name',
-                            icon: Icons.person_outline_rounded,
-                          ),
-                          _buildTextField(
-                            controller: _lastNameController,
-                            label: 'Last Name',
-                            icon: Icons.person_outline_rounded,
-                          ),
-                          _buildTextField(
-                            controller: _emailController,
-                            label: 'Email',
-                            icon: Icons.email_outlined,
-                            keyboardType: TextInputType.emailAddress,
-                          ),
-                          _buildTextField(
-                            controller: _phoneController,
-                            label: 'Phone Number',
-                            icon: Icons.phone_outlined,
-                            keyboardType: TextInputType.phone,
-                          ),
-                          _sectionHeader(
-                            'Account Security',
-                            Icons.lock_outline_rounded,
-                          ),
-                          _buildTextField(
-                            controller: _usernameController,
-                            label: 'Username',
-                            icon: Icons.alternate_email_rounded,
-                          ),
-                          _buildTextField(
-                            controller: _passwordController,
-                            label: 'Password',
-                            icon: Icons.lock_outline_rounded,
-                            obscureText: _obscurePassword,
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                                color: Colors.grey.shade600,
+                            if (!isDoctor) ...[
+                              _sectionHeader(
+                                'Location & Care',
+                                Icons.location_on_outlined,
                               ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscurePassword = !_obscurePassword;
-                                });
-                              },
-                            ),
-                          ),
-                          if (!isDoctor) ...[
-                            _sectionHeader(
-                              'Location & Care',
-                              Icons.location_on_outlined,
-                            ),
-                            _buildDropdown<String>(
-                              value: _selectedArea,
-                              items: _areas,
-                              label: 'Area in Zanzibar',
-                              icon: Icons.map_outlined,
-                              onChanged: (value) {
-                                setState(() => _selectedArea = value);
-                              },
-                            ),
-                            _buildDoctorField(),
-                            _buildDropdown<String>(
-                              value: _selectedDisabilityType,
-                              items: _disabilityTypes,
-                              label: 'Disability Type',
-                              icon: Icons.accessibility_new_rounded,
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedDisabilityType = value;
-                                });
-                              },
-                            ),
-                            if (_selectedDisabilityType == 'Others')
-                              _buildTextField(
-                                controller: _otherDisabilityController,
-                                label: 'Specify Disability Type',
-                                icon: Icons.edit_outlined,
+                              _buildDropdown<String>(
+                                value: _selectedArea,
+                                items: _areas,
+                                label: 'Area in Zanzibar',
+                                icon: Icons.map_outlined,
+                                validator: (value) => value == null
+                                    ? 'Please select an area.'
+                                    : null,
+                                onChanged: (value) {
+                                  setState(() => _selectedArea = value);
+                                },
                               ),
-                            const SizedBox(height: 10),
-                            _buildSubmitButton(
-                              accessibility,
-                              'Create Disabled User Account',
-                              Icons.accessibility_new_rounded,
-                            ),
-                          ] else ...[
-                            _sectionHeader(
-                              'Practice Details',
-                              Icons.local_hospital_outlined,
-                            ),
-                            _buildDropdown<String>(
-                              value: _selectedArea,
-                              items: _areas,
-                              label: 'Area in Zanzibar',
-                              icon: Icons.map_outlined,
-                              onChanged: (value) {
-                                setState(() => _selectedArea = value);
-                              },
-                            ),
-                            _buildDropdown<String>(
-                              value: _selectedSpecialization,
-                              items: _specializationTypes,
-                              label: 'Specialization',
-                              icon: Icons.medical_information_outlined,
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedSpecialization = value;
-                                });
-                              },
-                            ),
-                            if (_selectedSpecialization == 'Others')
-                              _buildTextField(
-                                controller: _otherSpecializationController,
-                                label: 'Specify Specialization',
-                                icon: Icons.edit_outlined,
+                              _buildDoctorField(),
+                              _buildDropdown<String>(
+                                value: _selectedDisabilityType,
+                                items: _disabilityTypes,
+                                label: 'Disability Type',
+                                icon: Icons.accessibility_new_rounded,
+                                validator: (value) => value == null
+                                    ? 'Please select a disability type.'
+                                    : null,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedDisabilityType = value;
+                                  });
+                                },
                               ),
-                            const SizedBox(height: 10),
-                            _buildSubmitButton(
-                              accessibility,
-                              'Create Doctor Account',
-                              Icons.medical_services_rounded,
-                            ),
+                              if (_selectedDisabilityType == 'Others')
+                                _buildTextField(
+                                  controller: _otherDisabilityController,
+                                  label: 'Specify Disability Type',
+                                  icon: Icons.edit_outlined,
+                                  validator: (value) =>
+                                      (value == null || value.trim().isEmpty)
+                                          ? 'Please specify the disability '
+                                              'type.'
+                                          : null,
+                                ),
+                              const SizedBox(height: 10),
+                              _buildSubmitButton(
+                                accessibility,
+                                'Create Disabled User Account',
+                                Icons.accessibility_new_rounded,
+                              ),
+                            ] else ...[
+                              _sectionHeader(
+                                'Practice Details',
+                                Icons.local_hospital_outlined,
+                              ),
+                              _buildDropdown<String>(
+                                value: _selectedArea,
+                                items: _areas,
+                                label: 'Area in Zanzibar',
+                                icon: Icons.map_outlined,
+                                validator: (value) => value == null
+                                    ? 'Please select an area.'
+                                    : null,
+                                onChanged: (value) {
+                                  setState(() => _selectedArea = value);
+                                },
+                              ),
+                              _buildDropdown<String>(
+                                value: _selectedSpecialization,
+                                items: _specializationTypes,
+                                label: 'Specialization',
+                                icon: Icons.medical_information_outlined,
+                                validator: (value) => value == null
+                                    ? 'Please select a specialization.'
+                                    : null,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _selectedSpecialization = value;
+                                  });
+                                },
+                              ),
+                              if (_selectedSpecialization == 'Others')
+                                _buildTextField(
+                                  controller: _otherSpecializationController,
+                                  label: 'Specify Specialization',
+                                  icon: Icons.edit_outlined,
+                                  validator: (value) =>
+                                      (value == null || value.trim().isEmpty)
+                                          ? 'Please specify the '
+                                              'specialization.'
+                                          : null,
+                                ),
+                              const SizedBox(height: 10),
+                              _buildSubmitButton(
+                                accessibility,
+                                'Create Doctor Account',
+                                Icons.medical_services_rounded,
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ),

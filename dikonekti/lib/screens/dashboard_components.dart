@@ -202,12 +202,6 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
                           onTap: () => _showMessages(context),
                         ),
                         _QuickAction(
-                          icon: Icons.note_alt_rounded,
-                          label: 'Care Notes',
-                          color: const Color(0xFFBC6C25),
-                          onTap: () => _showCareNotes(context),
-                        ),
-                        _QuickAction(
                           icon: Icons.tips_and_updates_rounded,
                           label: 'Health Tips',
                           color: const Color(0xFFBC6C25),
@@ -387,42 +381,6 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
         isDoctor: false,
         currentUsername: widget.user.username,
         doctorSummary: doctor,
-      ),
-    );
-  }
-
-  void _showCareNotes(BuildContext context) {
-    _openComingSoon(
-      context,
-      icon: Icons.note_alt_rounded,
-      title: 'Care Notes',
-      description: 'You will be able to view care notes your doctor has '
-          'shared about you here once this feature is available.',
-      accentColor: const Color(0xFFBC6C25),
-    );
-  }
-
-  void _openComingSoon(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color accentColor,
-  }) {
-    final accessibility = AccessibilitySettings.of(context);
-    if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('$title. $description');
-    }
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => _ComingSoonSheet(
-        icon: icon,
-        title: title,
-        description: description,
-        accentColor: accentColor,
       ),
     );
   }
@@ -926,106 +884,6 @@ class _HealthTipsSheet extends StatelessWidget {
   }
 }
 
-/// Generic sheet for features that aren't built yet — Schedule, Messages,
-/// Care Notes — so tapping them explains what's coming instead of
-/// dead-ending on a snackbar, and the voice assistant can read the same
-/// explanation aloud.
-class _ComingSoonSheet extends StatelessWidget {
-  const _ComingSoonSheet({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.accentColor,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-  final Color accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 14, 24, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 18),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: accentColor.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(icon, color: accentColor),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2D2150),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              description,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade700,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F3FB),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.construction_rounded,
-                    size: 18,
-                    color: accentColor,
-                  ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'This feature is under construction and will be '
-                      'available in a future update.',
-                      style: TextStyle(fontSize: 12.5),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 /// Real appointment scheduling — a disabled user can request a time with
 /// their doctor; the doctor sees requests routed to them and can confirm
@@ -1308,7 +1166,16 @@ class _MessageThreadState extends State<_MessageThread> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    // Without this, the input bar sits at a fixed position within the
+    // bottom sheet and the keyboard simply covers it — the sheet itself
+    // doesn't know to shrink around the keyboard the way a Scaffold does.
+    // Padding the whole thread by the keyboard's height pushes everything
+    // (message list + input bar) up together, so the input stays visible
+    // directly above the keyboard, exactly like a normal chat app.
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 100),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
       child: Column(
         children: [
           Padding(
@@ -1501,6 +1368,7 @@ class _MessageThreadState extends State<_MessageThread> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -2647,12 +2515,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
                             onTap: () => _showMessages(context),
                           ),
                           _QuickAction(
-                            icon: Icons.note_alt_rounded,
-                            label: 'Care Notes',
-                            color: const Color(0xFFBC6C25),
-                            onTap: () => _showCareNotes(context),
-                          ),
-                          _QuickAction(
                             icon: Icons.settings_accessibility_rounded,
                             label: 'Accessibility',
                             color: const Color(0xFF6D6875),
@@ -2754,42 +2616,6 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         isDoctor: true,
         currentUsername: widget.user.username,
         patients: _patients,
-      ),
-    );
-  }
-
-  void _showCareNotes(BuildContext context) {
-    _openComingSoon(
-      context,
-      icon: Icons.note_alt_rounded,
-      title: 'Care Notes',
-      description: 'You will be able to write and review notes about each '
-          'patient\'s care here once this feature is available.',
-      accentColor: const Color(0xFFBC6C25),
-    );
-  }
-
-  void _openComingSoon(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color accentColor,
-  }) {
-    final accessibility = AccessibilitySettings.of(context);
-    if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak('$title. $description');
-    }
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => _ComingSoonSheet(
-        icon: icon,
-        title: title,
-        description: description,
-        accentColor: accentColor,
       ),
     );
   }
