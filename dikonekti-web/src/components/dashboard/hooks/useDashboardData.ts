@@ -7,7 +7,7 @@ import type { EmergencyAlert, UserProfile } from "@/lib/types";
 export const POLL_INTERVAL_MS = 12_000;
 
 // Poll while the tab is visible; keep the last good data if a refresh fails.
-const polling = {
+export const polling = {
   refreshInterval: POLL_INTERVAL_MS,
   refreshWhenHidden: false,
   // Keep trying while the browser says it is offline: a paused poll would leave stale

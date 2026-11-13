@@ -151,7 +151,9 @@ None.
 | `dikonekti-web/src/lib/schemas/auth.ts` | New (Zod schemas for login and registration, shared by the forms and the API routes) |
 | `dikonekti-web/src/hooks/useSingleFlight.ts`, `src/components/dashboard/hooks/useNow.ts` | New (double-submit guard; shared 30s clock for relative times) |
 | `dikonekti-web/src/proxy.ts` | New (redirect unauthenticated users; keeps `/login` and `/register` public; Next 16 name for middleware) |
-| `dikonekti-web/src/app/api/auth/expired/route.ts` | New (clears a rejected session and redirects to login) |
+| `dikonekti-web/src/app/api/auth/refresh/route.ts` | New (POST only: refreshes the session cookies, or clears them on failure) |
+| `dikonekti-web/src/app/session-expired/page.tsx`, `SessionRefresher.tsx` | New (client page that POSTs the refresh once, then returns home or to login) |
+| `dikonekti-web/src/lib/auth/django-session.ts` | New (login and doctor-only register calls to Django, session payload validation) |
 | `dikonekti-web/vitest.config.mts`, `vitest.setup.ts`, `vitest.server-only.ts` | New (test setup) |
 | `.ai/context.md`, `.ai/specs/DIK-001.md` | New (module map; implementation spec) |
 | `dikonekti-web/src/lib/api.ts`, `src/lib/types.ts` | New |
@@ -167,4 +169,4 @@ None.
 - Anyone can register as a doctor and patients can pick any doctor, exactly as in the mobile app. Verification of doctors is a separate ticket.
 - `src/lib/options.ts` copies the mobile lists (area, specialization) so stored values match. The mobile area list repeats "Kibweni" (listed once on web) and spells "jumbi" in lower case (kept as is). Keep both apps in step.
 - The brand glyph is Material `volunteer_activism` (round) from `@material-design-icons/svg` (Apache-2.0), the same icon the mobile login screen uses. Colors `#6750A4` to `#9B7FE8` are copied from `login_page.dart`.
-- Code review (DIK-001, `/code-review-3`) fixes: alert ages tick every 30s from one shared timer; `proxyUrl` keeps the whole query; patients refresh every 5 minutes instead of every 12s; a single server-side Django client and browser `apiFetch` replace nine raw `fetch` calls; forms use React Hook Form + Zod with one schema shared with the routes (company web rules); one `useSingleFlight` hook replaces six copies of the double-submit guard; a token Django rejects now triggers one refresh attempt (`/api/auth/expired`) before the user is signed out; unused starter assets removed.
+- Code review (DIK-001, `/code-review-3`) fixes: alert ages tick every 30s from one shared timer; `proxyUrl` keeps the whole query; patients refresh every 5 minutes instead of every 12s; a single server-side Django client and browser `apiFetch` replace nine raw `fetch` calls; forms use React Hook Form + Zod with one schema shared with the routes (company web rules); one `useSingleFlight` hook replaces six copies of the double-submit guard; a token Django rejects now triggers one POSTed refresh attempt (`/session-expired` page, `/api/auth/refresh`) before the user is signed out, and nothing changes the session on a GET; unused starter assets removed.

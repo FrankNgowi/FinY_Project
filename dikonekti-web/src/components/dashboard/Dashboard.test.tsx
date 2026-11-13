@@ -185,4 +185,17 @@ describe("Dashboard quick action dialogs", () => {
     const dialog = screen.getByRole("dialog", { name: /messages/i });
     expect(within(dialog).getByRole("button", { name: /amina otieno/i })).toBeInTheDocument();
   });
+
+  it("messages_does_not_claim_no_patients_when_the_patient_list_failed_to_load", async () => {
+    mockApi({
+      "GET /api/alerts": () => jsonResponse([]),
+      "GET /api/patients": () => jsonResponse({ detail: "boom" }, 500),
+    });
+    renderDashboard();
+    await screen.findByText(/no emergency alerts/i);
+    await userEvent.click(within(screen.getByRole("region", { name: /quick actions/i })).getByRole("button", { name: "Messages" }));
+    const dialog = screen.getByRole("dialog", { name: /messages/i });
+    expect(within(dialog).getByText(/patients are unavailable/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/no patients to message yet/i)).not.toBeInTheDocument();
+  });
 });

@@ -2,6 +2,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
+import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { jsonResponse, makeMessage, makeProfile } from "@/test/fixtures";
 import { MessagesDialog } from "./MessagesDialog";
@@ -13,20 +14,31 @@ const patients = [
   makeProfile({ username: "p2", first_name: "Brian", last_name: "Kamau", area: null }),
 ];
 
-function renderDialog(list = patients) {
+// `null` renders the dialog as if the patient list could not be loaded (patients === undefined).
+function renderDialog(list: typeof patients | null = patients) {
   return render(
     <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 }}>
-      <MessagesDialog currentUsername="dr1" patients={list} onClose={vi.fn()} />
+      <MessagesDialog currentUsername="dr1" patients={list ?? undefined} onClose={vi.fn()} />
     </SWRConfig>,
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  window.dispatchEvent(new Event("online"));
+});
 
 describe("MessagesDialog", () => {
   it("shows_an_empty_state_without_patients", () => {
     renderDialog([]);
     expect(screen.getByText(/no patients to message yet/i)).toBeInTheDocument();
+  });
+
+  it("does_not_claim_there_are_no_patients_when_the_list_could_not_be_loaded", () => {
+    renderDialog(null);
+    expect(screen.getByText(/patients are unavailable right now/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no patients to message yet/i)).not.toBeInTheDocument();
   });
 
   it("lists_patients_to_pick_from", () => {
@@ -122,5 +134,23 @@ describe("MessagesDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: /amina otieno/i }));
     await userEvent.click(await screen.findByRole("button", { name: /back/i }));
     expect(screen.getByRole("button", { name: /brian kamau/i })).toBeInTheDocument();
+  });
+
+  it("keeps_polling_the_open_thread_while_the_browser_reports_offline", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: /amina otieno/i }));
+    await screen.findByText(/no messages yet/i);
+    act(() => {
+      window.dispatchEvent(new Event("offline"));
+    });
+    fetchMock.mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_500);
+    });
+    // A paused poll would leave a stale thread on screen with no warning.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

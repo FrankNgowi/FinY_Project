@@ -11,7 +11,8 @@ export function decideRoute(profile: { role: string } | null): RouteDecision {
 /**
  * Where the home page sends a visitor whose token Django rejected. The first time it tries a
  * refresh; after a refresh already happened it gives up and signs out, so a bad token cannot loop.
+ * Both steps run as POSTs from the /session-expired page, never as GET side effects.
  */
 export function unauthorizedRedirect(alreadyRefreshed: boolean): string {
-  return alreadyRefreshed ? "/api/auth/expired?final=1" : "/api/auth/expired";
+  return alreadyRefreshed ? "/session-expired?final=1" : "/session-expired";
 }

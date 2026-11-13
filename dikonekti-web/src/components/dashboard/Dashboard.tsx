@@ -137,7 +137,7 @@ export function Dashboard({ profile }: { profile: UserProfile }) {
       {openAction === "tips" && <HealthTipsDialog onClose={closeDialog} />}
       {openAction === "schedule" && <ScheduleDialog onClose={closeDialog} />}
       {openAction === "messages" && (
-        <MessagesDialog currentUsername={profile.username} patients={patients ?? []} onClose={closeDialog} />
+        <MessagesDialog currentUsername={profile.username} patients={patients} onClose={closeDialog} />
       )}
     </div>
   );

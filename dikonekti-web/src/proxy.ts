@@ -10,7 +10,7 @@ import {
 } from "@/lib/session";
 
 // `isLogin` covers both signed-out pages. Session presence is decided by cookie existence only; Django stays the
-// authority and a rejected token ends up at /api/auth/expired.
+// authority and a rejected token ends up at /session-expired.
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isLogin = pathname === "/login" || pathname === "/register"; // pages for signed-out visitors

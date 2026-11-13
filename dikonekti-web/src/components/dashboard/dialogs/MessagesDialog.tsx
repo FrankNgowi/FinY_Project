@@ -6,7 +6,7 @@ import type { UserProfile } from "@/lib/types";
 import { Dialog } from "./Dialog";
 import { MessageThread } from "./MessageThread";
 
-type Props = { currentUsername: string; patients: UserProfile[]; onClose: () => void };
+type Props = { currentUsername: string; /** undefined while loading or when the list could not be loaded. */ patients: UserProfile[] | undefined; onClose: () => void };
 
 export function MessagesDialog({ currentUsername, patients, onClose }: Props) {
   const [selected, setSelected] = useState<UserProfile | null>(null);
@@ -15,6 +15,8 @@ export function MessagesDialog({ currentUsername, patients, onClose }: Props) {
     <Dialog title="Messages" onClose={onClose}>
       {selected ? (
         <MessageThread patient={selected} currentUsername={currentUsername} onBack={() => setSelected(null)} />
+      ) : patients === undefined ? (
+        <p className="py-6 text-center text-muted">Patients are unavailable right now. Close this and try again in a moment.</p>
       ) : patients.length === 0 ? (
         <p className="py-6 text-center text-muted">No patients to message yet.</p>
       ) : (

@@ -109,6 +109,34 @@ describe("AlertCard", () => {
     expect(screen.getByRole("heading", { name })).toHaveClass("break-words");
   });
 
+  describe("copy status", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("clears_the_copied_message_after_a_moment", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+      render(<AlertCard alert={makeAlert()} onAcknowledge={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: /copy coordinates/i }));
+      expect(await screen.findByText("Copied")).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      expect(screen.queryByText("Copied")).not.toBeInTheDocument();
+    });
+
+    it("clears_a_failed_copy_message_too", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+      render(<AlertCard alert={makeAlert()} onAcknowledge={vi.fn()} />);
+      await userEvent.click(screen.getByRole("button", { name: /copy coordinates/i }));
+      expect(await screen.findByText(/could not copy/i)).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_500);
+      });
+      expect(screen.queryByText(/could not copy/i)).not.toBeInTheDocument();
+    });
+  });
+
   describe("alert age", () => {
     afterEach(() => vi.useRealTimers());
 

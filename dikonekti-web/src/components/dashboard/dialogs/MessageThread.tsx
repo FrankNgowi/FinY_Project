@@ -6,14 +6,11 @@ import useSWR from "swr";
 import { apiFetch, swrFetcher } from "@/lib/api-client";
 import { fullName } from "@/lib/format";
 import type { ChatMessage, UserProfile } from "@/lib/types";
-import { POLL_INTERVAL_MS } from "../hooks/useDashboardData";
+import { polling } from "../hooks/useDashboardData";
 
 export function MessageThread({ patient, currentUsername, onBack }: { patient: UserProfile; currentUsername: string; onBack: () => void }) {
   const key = `messages/?patient=${encodeURIComponent(patient.username)}`;
-  const { data, error, mutate } = useSWR(key, swrFetcher<ChatMessage[]>, {
-    refreshInterval: POLL_INTERVAL_MS,
-    refreshWhenHidden: false,
-  });
+  const { data, error, mutate } = useSWR(key, swrFetcher<ChatMessage[]>, polling);
   const [draft, setDraft] = useState("");
   const { pending: sending, run } = useSingleFlight();
   const [sendError, setSendError] = useState<string | null>(null);

@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { coordinatesLabel, mapsUrl } from "@/lib/format";
 import type { EmergencyAlert } from "@/lib/types";
 
 type CopyState = "idle" | "copied" | "failed";
 
+const COPY_STATUS_MS = 2_000;
+
 export function AlertLocation({ alert }: { alert: EmergencyAlert }) {
   const [copy, setCopy] = useState<CopyState>("idle");
+
+  // Clear the "Copied" / "Could not copy" status after a moment so it never goes stale.
+  useEffect(() => {
+    if (copy === "idle") return;
+    const timer = setTimeout(() => setCopy("idle"), COPY_STATUS_MS);
+    return () => clearTimeout(timer);
+  }, [copy]);
   const url = mapsUrl(alert.latitude, alert.longitude);
 
   if (!url) {

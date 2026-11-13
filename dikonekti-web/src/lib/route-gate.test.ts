@@ -31,10 +31,10 @@ describe("decideRoute", () => {
 
 describe("unauthorizedRedirect", () => {
   it("tries_a_refresh_first", () => {
-    expect(unauthorizedRedirect(false)).toBe("/api/auth/expired");
+    expect(unauthorizedRedirect(false)).toBe("/session-expired");
   });
 
   it("gives_up_after_a_refresh_already_failed_to_fix_it", () => {
-    expect(unauthorizedRedirect(true)).toBe("/api/auth/expired?final=1");
+    expect(unauthorizedRedirect(true)).toBe("/session-expired?final=1");
   });
 });
