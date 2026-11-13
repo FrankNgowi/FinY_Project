@@ -100,4 +100,14 @@ describe("LoginForm", () => {
     render(<LoginForm />);
     expect(screen.getByLabelText(/password/i)).toHaveAttribute("type", "password");
   });
+
+  it("shows_the_too_many_attempts_message_for_a_429", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply({ message: "Too many attempts. Please wait a few minutes and try again." }, 429)));
+    const user = userEvent.setup();
+    render(<LoginForm />);
+    await fill(user);
+    await user.click(screen.getByRole("button", { name: /log in/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/too many attempts/i);
+    expect(screen.getByRole("button", { name: /log in/i })).toBeEnabled();
+  });
 });

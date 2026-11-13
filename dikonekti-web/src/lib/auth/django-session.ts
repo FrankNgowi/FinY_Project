@@ -4,6 +4,9 @@ import { djangoRequest } from "@/lib/django";
 import { extractFieldErrors } from "@/lib/field-errors";
 import type { LoginValues, RegisterPayload } from "@/lib/schemas/auth";
 
+/** Shown instead of Django's own throttle wording ("Expected available in N seconds"). */
+export const THROTTLED_MESSAGE = "Too many attempts. Please wait a few minutes and try again.";
+
 export type DjangoSession = { access: string; refresh: string; role: string; displayName: string };
 
 /** Validates the `{access, refresh, profile}` body Django returns from login and register. */
@@ -19,12 +22,13 @@ export function parseSessionPayload(data: unknown): DjangoSession | null {
 
 export type LoginResult =
   | { kind: "session"; session: DjangoSession }
-  | { kind: "rejected"; status: 400 | 401; message: string }
+  | { kind: "rejected"; status: 400 | 401 | 429; message: string }
   | { kind: "unavailable" };
 
 /** Network and configuration errors propagate: the route maps them with `upstreamFailure`. */
 export async function loginWithDjango(credentials: LoginValues): Promise<LoginResult> {
   const response = await djangoRequest("auth/login/", { method: "POST", json: credentials });
+  if (response.status === 429) return { kind: "rejected", status: 429, message: THROTTLED_MESSAGE };
   const data: unknown = await response.json().catch(() => undefined);
   if (response.status === 400 || response.status === 401) {
     return { kind: "rejected", status: response.status, message: extractErrorMessage(data) };
@@ -35,6 +39,7 @@ export async function loginWithDjango(credentials: LoginValues): Promise<LoginRe
 
 export type RegisterResult =
   | { kind: "session"; session: DjangoSession }
+  | { kind: "rejected"; status: 429; message: string }
   | { kind: "invalid"; message: string; errors: Record<string, string[]> }
   | { kind: "unavailable" };
 
@@ -44,6 +49,7 @@ export type RegisterResult =
  */
 export async function registerDoctor(payload: RegisterPayload): Promise<RegisterResult> {
   const response = await djangoRequest("auth/register/", { method: "POST", json: { ...payload, role: "doctor" } });
+  if (response.status === 429) return { kind: "rejected", status: 429, message: THROTTLED_MESSAGE };
   const data: unknown = await response.json().catch(() => undefined);
 
   if (response.status === 400) {

@@ -184,4 +184,14 @@ describe("RegisterForm", () => {
     await user.selectOptions(screen.getByLabelText("Specialization"), "Hearing");
     expect(screen.queryByLabelText("Specify specialization")).not.toBeInTheDocument();
   });
+
+  it("shows_the_too_many_attempts_message_for_a_429", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(reply({ message: "Too many attempts. Please wait a few minutes and try again.", errors: {} }, 429)));
+    const user = userEvent.setup();
+    render(<RegisterForm />);
+    await fillValid(user);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/too many attempts/i);
+    expect(screen.getByRole("button", { name: /create account/i })).toBeEnabled();
+  });
 });

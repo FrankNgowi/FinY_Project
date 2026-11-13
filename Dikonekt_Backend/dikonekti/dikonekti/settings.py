@@ -10,8 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
+import tempfile
 from datetime import timedelta
 from pathlib import Path
+
+from .env import allowed_hosts, env_bool, env_int, env_list, env_required, private_folder_suffix
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,15 +25,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-_dc3!4jq0fsa37uep1@+ozmsah432rzn)x1n2&($%mzq56#ux&'
+# All environment-specific values and secrets come from environment variables.
+# Required ones have no default: the server refuses to start without them.
+# See README.md and .env.example.
+SECRET_KEY = env_required('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool('DJANGO_DEBUG')
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = allowed_hosts(DEBUG, os.environ.get('DJANGO_ALLOWED_HOSTS'))
 
-
-# Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -87,6 +92,30 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Used by accounts/throttles.py (login per username, register per IP).
+    'DEFAULT_THROTTLE_RATES': {
+        'login_minute': '5/min',
+        'login_hour': '30/hour',
+        'register': '5/hour',
+    },
+    # How many reverse proxies sit in front of Django. 0 (the default) means the connection's
+    # own address is used and X-Forwarded-For is ignored, so a client cannot dodge the register
+    # limit by inventing that header. Set DJANGO_NUM_PROXIES only when a trusted proxy that
+    # overwrites the header really is in front of Django.
+    'NUM_PROXIES': env_int('DJANGO_NUM_PROXIES', 0),
+}
+
+# Throttle counters live in the cache. A file-based cache is shared by every worker
+# process on one host (the default local-memory cache is per process, so the limits
+# would be per worker). Several hosts would need a shared cache such as Redis.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        # The default folder is per user: a name shared by everyone on a machine could be
+        # pre-created by someone else. A system check in accounts/checks.py verifies it is usable.
+        'LOCATION': (os.environ.get('DJANGO_CACHE_DIR') or '').strip()
+        or os.path.join(tempfile.gettempdir(), f'dikonekti-cache-{private_folder_suffix()}'),
+    }
 }
 
 SIMPLE_JWT = {
@@ -100,17 +129,14 @@ SIMPLE_JWT = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'Dikonekti',
-        'USER': 'postgres',
-        'PASSWORD': '12345678',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': env_required('DJANGO_DB_NAME'),
+        'USER': env_required('DJANGO_DB_USER'),
+        'PASSWORD': env_required('DJANGO_DB_PASSWORD'),
+        'HOST': os.environ.get('DJANGO_DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DJANGO_DB_PORT', '5432'),
     }
 }
 
-
-# Password validation
-# https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -139,7 +165,10 @@ USE_I18N = True
 
 USE_TZ = True
 
-CORS_ALLOW_ALL_ORIGINS = True
+# Browsers may call the API only from these origins. Empty (the default) means none.
+# The Next.js app calls Django from its own server and the mobile app is native,
+# so neither needs an entry here.
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS')
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/

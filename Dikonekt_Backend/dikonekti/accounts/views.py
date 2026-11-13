@@ -7,6 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import User
 from .permissions import IsDoctor
 from .serializers import DoctorListSerializer, RegisterSerializer, UserProfileSerializer
+from .throttles import LoginHourThrottle, LoginMinuteThrottle, RegisterThrottle
 
 
 class RegisterView(generics.CreateAPIView):
@@ -20,6 +21,7 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [RegisterThrottle]
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -53,6 +55,7 @@ class LoginView(TokenObtainPairView):
 
     serializer_class = ProfileEmbeddingTokenSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [LoginMinuteThrottle, LoginHourThrottle]
 
 
 class MeView(generics.RetrieveAPIView):

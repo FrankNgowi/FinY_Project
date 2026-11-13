@@ -164,4 +164,12 @@ describe("POST /api/auth/register", () => {
     await POST(post({ ...valid, specialization: "  Autism care " }));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).specialization).toBe("Autism care");
   });
+
+  it("passes_a_429_through_with_the_fixed_message_and_an_empty_errors_object", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Request was throttled." }), { status: 429 })));
+    const res = await POST(post(valid));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ message: "Too many attempts. Please wait a few minutes and try again.", errors: {} });
+    expect(res.headers.getSetCookie()).toHaveLength(0);
+  });
 });

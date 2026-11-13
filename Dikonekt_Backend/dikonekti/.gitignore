@@ -1,0 +1,7 @@
+# Local configuration and virtual environments
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc

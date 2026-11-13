@@ -19,7 +19,7 @@ npm install
 npm run dev                  # http://localhost:3000
 ```
 
-Run Django in another terminal (`python manage.py runserver` in `Dikonekt_Backend/dikonekti`). `API_BASE_URL` must include the `/api` prefix, e.g. `http://localhost:8000/api`.
+Run Django in another terminal. It needs a few environment variables first; see `Dikonekt_Backend/dikonekti/README.md`. `API_BASE_URL` must include the `/api` prefix, e.g. `http://localhost:8000/api`.
 
 ## Commands
 

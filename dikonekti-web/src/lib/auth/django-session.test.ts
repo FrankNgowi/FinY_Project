@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loginWithDjango, parseSessionPayload, registerDoctor } from "./django-session";
+import { THROTTLED_MESSAGE, loginWithDjango, parseSessionPayload, registerDoctor } from "./django-session";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -102,6 +102,40 @@ describe("registerDoctor", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(session(), 200)));
     await expect(registerDoctor(payload)).resolves.toEqual({ kind: "unavailable" });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 500 })));
+    await expect(registerDoctor(payload)).resolves.toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("throttled responses (429)", () => {
+  const throttled = (body: BodyInit | null = JSON.stringify({ detail: "Request was throttled. Expected available in 42 seconds." })) =>
+    new Response(body, { status: 429, headers: { "retry-after": "42" } });
+
+  it("the message tells the user to wait and never shows Django's wording", () => {
+    expect(THROTTLED_MESSAGE).toBe("Too many attempts. Please wait a few minutes and try again.");
+  });
+
+  it("login_reports_429_as_rejected_with_the_fixed_message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(throttled()));
+    await expect(loginWithDjango({ username: "u", password: "p" })).resolves.toEqual({
+      kind: "rejected",
+      status: 429,
+      message: THROTTLED_MESSAGE,
+    });
+  });
+
+  it("login_does_the_same_for_a_429_without_a_json_body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(throttled("<html>Too Many Requests</html>")));
+    await expect(loginWithDjango({ username: "u", password: "p" })).resolves.toMatchObject({ kind: "rejected", status: 429, message: THROTTLED_MESSAGE });
+  });
+
+  it("register_reports_429_as_rejected_with_the_fixed_message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(throttled()));
+    await expect(registerDoctor(payload)).resolves.toEqual({ kind: "rejected", status: 429, message: THROTTLED_MESSAGE });
+  });
+
+  it("other_failures_are_unchanged", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 503 })));
+    await expect(loginWithDjango({ username: "u", password: "p" })).resolves.toEqual({ kind: "unavailable" });
     await expect(registerDoctor(payload)).resolves.toEqual({ kind: "unavailable" });
   });
 });
