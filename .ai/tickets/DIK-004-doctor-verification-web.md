@@ -70,6 +70,7 @@ rejected        Your document was not accepted
 - [ ] A valid 1 MB PDF, a JPG and a PNG upload successfully, and the file arrives at Django byte-for-byte identical (checked by comparing hashes in a test).
 - [ ] A server error on upload (for example `400` for a disguised file) shows its message, re-enables the button and keeps the chosen file selectable.
 - [ ] A doctor who is revoked while the dashboard is open is sent to `/verification` on the next refresh, not shown a broken dashboard.
+- [ ] A server refusal of the upload is shown in plain words, never Django's raw text: `429` shows "Too many uploads. Please wait a while and try again." and `413` shows "The file is larger than 5 MB." The form stays usable.
 - [ ] Double-clicking Submit sends one upload request.
 - [ ] The Disabled User and unknown-role behavior from DIK-001 is unchanged by this ticket.
 - [ ] Doctors with no JavaScript-visible tokens: cookies remain `httpOnly` and the document is never readable by the page after upload.
@@ -99,6 +100,7 @@ Uses `GET /api/me/` (new `verification_status`), `GET` and `POST /api/me/verific
 - The `Profile` type gains `verification_status`. The profile in `/api/me/` is the single source: do not infer verification from a failed request.
 - Handle `verification_required` in the shared dashboard data layer (one place) rather than in each component.
 - Form validation for the file uses a Zod schema like the other forms (company web rules).
+- DIK-003 limits uploads to 10 per hour per doctor (`429`) and refuses a declared body over 6 MB with `413`. Map both to fixed messages in the upload helper (as DIK-002 did for the login `429`), so Django's "Expected available in N seconds" wording is never shown.
 - Allowlist rows: this ticket adds only the two `me/verification` rows; other tickets add their own.
 
 ---

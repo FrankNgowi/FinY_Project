@@ -19,7 +19,7 @@ Duplicate nested folders `dikonekti/dikonekti` and `dikonekti/Dikonekt_Backend` 
 
 | App | Reserved | By | Next free after it |
 |---|---|---|---|
-| `messaging` | `0002_message_body_max_length` | DIK-002 | `0003` |
+| `messaging` | `0002_message_body_max_length` (applied, shipped with DIK-002) | DIK-002 | `0003` |
 | `accounts` | `0003_doctor_verification`, `0004_approve_existing_doctors` | DIK-003 | `0005` |
 
 ## Planned follow-ups to DIK-001
