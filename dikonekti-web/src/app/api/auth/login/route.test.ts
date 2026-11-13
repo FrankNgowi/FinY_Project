@@ -108,4 +108,12 @@ describe("POST /api/auth/login", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(res.headers.getSetCookie()).toHaveLength(0);
   });
+
+  it("passes_a_429_through_with_the_fixed_message_and_sets_no_cookies", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Request was throttled. Expected available in 42 seconds." }), { status: 429 })));
+    const res = await POST(login({ username: "dr1", password: "pw" }));
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ message: "Too many attempts. Please wait a few minutes and try again." });
+    expect(res.headers.getSetCookie()).toHaveLength(0);
+  });
 });

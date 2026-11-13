@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     return upstreamFailure("auth/register", error);
   }
 
+  if (result.kind === "rejected") return fail(result.message, result.status);
   if (result.kind === "invalid") return fail(result.message, 400, result.errors);
   if (result.kind === "unavailable") return fail("Account creation is unavailable right now. Please try again.", 502);
 

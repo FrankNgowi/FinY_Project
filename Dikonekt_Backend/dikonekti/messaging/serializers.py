@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Message
+from .models import MESSAGE_BODY_MAX_LENGTH, Message
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -27,6 +27,15 @@ class CreateMessageSerializer(serializers.ModelSerializer):
     registered with them.
     """
 
+    # Trimmed first (the default), then length-checked. A blank body is let through
+    # so `validate` can keep reporting "Message cannot be empty."
+    body = serializers.CharField(
+        max_length=MESSAGE_BODY_MAX_LENGTH,
+        allow_blank=True,
+        error_messages={
+            'max_length': f'Message is too long (max {MESSAGE_BODY_MAX_LENGTH} characters).',
+        },
+    )
     recipient_username = serializers.CharField(
         write_only=True, required=False, allow_blank=True,
     )
