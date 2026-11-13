@@ -2,7 +2,7 @@ import os
 import stat
 import tempfile
 from pathlib import Path
-from unittest import skipIf
+from unittest import mock, skipIf
 
 from django.test import SimpleTestCase, override_settings
 
@@ -43,6 +43,35 @@ class ThrottleCacheCheckTests(SimpleTestCase):
             locked.mkdir(mode=0o500)
             with override_settings(CACHES=file_cache(locked / "inside")):
                 self.assertEqual(len(check_throttle_cache(None)), 1)
+
+    def test_a_folder_that_other_users_can_write_to_is_reported(self):
+        for mode in (0o777, 0o770, 0o757, 0o722):
+            with tempfile.TemporaryDirectory() as parent:
+                folder = Path(parent) / "shared"
+                folder.mkdir()
+                folder.chmod(mode)
+                with override_settings(CACHES=file_cache(folder)):
+                    errors = check_throttle_cache(None)
+                self.assertEqual(len(errors), 1, oct(mode))
+                self.assertIn("DJANGO_CACHE_DIR", errors[0].msg)
+                self.assertIn("writable", errors[0].msg)
+
+    def test_a_folder_others_can_only_read_or_not_touch_is_accepted(self):
+        for mode in (0o700, 0o750, 0o755):
+            with tempfile.TemporaryDirectory() as parent:
+                folder = Path(parent) / "ok"
+                folder.mkdir()
+                folder.chmod(mode)
+                with override_settings(CACHES=file_cache(folder)):
+                    self.assertEqual(check_throttle_cache(None), [], oct(mode))
+
+    def test_a_folder_owned_by_someone_else_is_reported(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
+            with mock.patch("os.getuid", return_value=os.stat(folder).st_uid + 1, create=True):
+                errors = check_throttle_cache(None)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("owned by", errors[0].msg)
+        self.assertIn("DJANGO_CACHE_DIR", errors[0].msg)
 
     def test_other_cache_backends_are_not_checked(self):
         caches = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "x"}}

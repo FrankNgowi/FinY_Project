@@ -78,16 +78,34 @@ def _serialized():
 
 
 class _Serialized:
+    """Run the limit check under the lock, and never let the limiter itself stop a login.
+
+    If the lock cannot be taken in time, or the limiter hits a file error (disk full, folder
+    permissions changed, locks unsupported), the request is let through and the problem is
+    logged: logins keep working, but are not rate limited until it is fixed. Once it has
+    failed for a request, the request's other throttles skip the check instead of waiting
+    for the same problem again.
+    """
+
     def allow_request(self, request, view):
-        with _serialized() as held:
-            if not held:
+        if getattr(request, '_rate_limiter_failed', False):
+            return True
+        try:
+            with _serialized() as held:
+                if held:
+                    return super().allow_request(request, view)
                 logger.error(
                     'Could not take the rate-limit lock within %s seconds; letting the request '
                     'through unchecked (scope=%s). Check the throttle cache folder.',
                     LOCK_TIMEOUT_SECONDS, self.scope,
                 )
-                return True
-            return super().allow_request(request, view)
+        except OSError:
+            logger.exception(
+                'The rate limiter failed with a file error; letting the request through '
+                'unchecked (scope=%s). Check the throttle cache folder.', self.scope,
+            )
+        request._rate_limiter_failed = True
+        return True
 
 
 def _normalized_username(request):

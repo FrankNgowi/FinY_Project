@@ -1,12 +1,13 @@
 import contextlib
 import fcntl
 import json
+import os
 import multiprocessing
 import tempfile
 import threading
 import time
 from types import SimpleNamespace
-from unittest import mock
+from unittest import mock, skipIf
 
 from django.conf import settings
 from django.core.cache import cache
@@ -347,6 +348,45 @@ class StuckLockTests(SimpleTestCase):
         self.assertFalse(throttles._THREAD_LOCK.locked())
 
 
+class LimiterFailureTests(SimpleTestCase):
+    """Any trouble inside the limiter itself (not only a busy lock) must let the request through and log."""
+
+    def test_an_unusable_lock_file_lets_the_request_through_and_logs(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
+            os.mkdir(f"{folder}/.throttle.lock")  # opening it as a file fails
+            with self.assertLogs("accounts.throttles", level="ERROR"):
+                self.assertTrue(LoginMinuteThrottle().allow_request(fake_request("a"), None))
+            self.assertFalse(throttles._THREAD_LOCK.locked(), "the in-process lock must be released after a failure")
+
+    @skipIf(os.geteuid() == 0, "root can write anywhere")
+    def test_a_folder_that_became_read_only_lets_the_request_through_and_logs(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
+            LoginMinuteThrottle().allow_request(fake_request("b"), None)  # creates the lock and a cache file
+            for name in os.listdir(folder):
+                os.chmod(os.path.join(folder, name), 0o400)
+            os.chmod(folder, 0o500)
+            try:
+                with self.assertLogs("accounts.throttles", level="ERROR"):
+                    self.assertTrue(LoginMinuteThrottle().allow_request(fake_request("b"), None))
+            finally:
+                os.chmod(folder, 0o700)
+
+    @override_settings(CACHES=LOCMEM)
+    def test_a_cache_write_failure_such_as_a_full_disk_lets_the_request_through_and_logs(self):
+        cache.clear()
+        with mock.patch.object(LocMemCache, "set", side_effect=OSError(28, "No space left on device")):
+            with self.assertLogs("accounts.throttles", level="ERROR"):
+                self.assertTrue(LoginMinuteThrottle().allow_request(fake_request("c"), None))
+        throttles_after = [LoginMinuteThrottle().allow_request(fake_request("c"), None) for _ in range(7)]
+        self.assertEqual(throttles_after.count(True), 5)  # back to normal once the cache works
+
+    @override_settings(CACHES=LOCMEM)
+    def test_other_kinds_of_errors_are_not_hidden(self):
+        with mock.patch.object(LocMemCache, "set", side_effect=TypeError("a real bug")):
+            with self.assertRaises(TypeError):
+                LoginMinuteThrottle().allow_request(fake_request("d"), None)
+
+
 @contextlib.contextmanager
 def another_thread_holding_the_lock():
     """Hold the limiter's in-process lock from a different thread, like a stuck worker thread."""
@@ -369,6 +409,15 @@ def another_thread_holding_the_lock():
 
 @override_settings(CACHES=LOCMEM, PASSWORD_HASHERS=FAST_HASHER)
 class StuckLockLoginTests(ThrottleTestCase):
+    def test_a_stuck_lock_costs_one_timeout_not_one_per_throttle(self):
+        with mock.patch.object(throttles, "LOCK_TIMEOUT_SECONDS", 0.4), another_thread_holding_the_lock():
+            started = time.monotonic()
+            with self.assertLogs("accounts.throttles", level="ERROR") as logs:
+                self.login(password=PASSWORD)
+            waited = time.monotonic() - started
+        self.assertLess(waited, 0.7, f"waited {waited:.2f}s: the second throttle waited for the lock again")
+        self.assertEqual(len(logs.output), 1, "the failure is logged once per request")
+
     def test_login_still_answers_normally_while_the_limiter_is_stuck(self):
         # The request runs on this thread (so it sees the test database); another thread holds the lock.
         with mock.patch.object(throttles, "LOCK_TIMEOUT_SECONDS", 0.2), another_thread_holding_the_lock():
