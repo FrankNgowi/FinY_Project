@@ -4,7 +4,7 @@ from unittest import mock
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
 
-from dikonekti.env import allowed_hosts, env_bool, env_int, env_list, env_required
+from dikonekti.env import allowed_hosts, env_bool, env_int, env_list, env_required, private_folder_suffix
 
 
 class EnvBoolTests(SimpleTestCase):
@@ -88,8 +88,34 @@ class EnvIntTests(SimpleTestCase):
             self.assertEqual(env_int("X", 0), 2)
 
     def test_anything_else_stops_start_up_naming_the_variable(self):
-        for value in ("abc", "1.5", "-1", "1e3", "0x10"):
+        # "²" and the Arabic-Indic "٣" pass str.isdigit() but are not plain 0-9 digits.
+        for value in ("abc", "1.5", "-1", "1e3", "0x10", "²", "٣", "１"):
             with mock.patch.dict(os.environ, {"DJANGO_NUM_PROXIES": value}):
                 with self.assertRaises(ImproperlyConfigured) as ctx:
                     env_int("DJANGO_NUM_PROXIES", 0)
                 self.assertIn("DJANGO_NUM_PROXIES", str(ctx.exception), value)
+
+
+class PrivateFolderSuffixTests(SimpleTestCase):
+    """The default throttle cache folder is named after the running user, without ever failing start-up."""
+
+    def test_it_is_the_user_name(self):
+        with mock.patch("getpass.getuser", return_value="deploy"):
+            self.assertEqual(private_folder_suffix(), "deploy")
+
+    def test_characters_that_are_unsafe_in_a_path_are_replaced(self):
+        with mock.patch("getpass.getuser", return_value="a/b\\..c d"):
+            self.assertEqual(private_folder_suffix(), "a_b_..c_d")
+
+    def test_a_user_id_with_no_name_falls_back_to_the_numeric_id(self):
+        for error in (KeyError("getpwuid(): uid not found: 1234"), OSError("No username set"), ImportError("no pwd")):
+            with mock.patch("getpass.getuser", side_effect=error), mock.patch("os.getuid", return_value=1234, create=True):
+                self.assertEqual(private_folder_suffix(), "1234")
+
+    def test_a_blank_name_falls_back_to_the_numeric_id(self):
+        with mock.patch("getpass.getuser", return_value="  "), mock.patch("os.getuid", return_value=77, create=True):
+            self.assertEqual(private_folder_suffix(), "77")
+
+    def test_without_a_user_id_either_it_still_returns_something_usable(self):
+        with mock.patch("getpass.getuser", side_effect=KeyError("x")), mock.patch("os.getuid", side_effect=AttributeError, create=True):
+            self.assertEqual(private_folder_suffix(), "user")

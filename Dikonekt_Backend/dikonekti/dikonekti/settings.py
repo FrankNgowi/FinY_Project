@@ -10,13 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
-import getpass
 import os
 import tempfile
 from datetime import timedelta
 from pathlib import Path
 
-from .env import allowed_hosts, env_bool, env_int, env_list, env_required
+from .env import allowed_hosts, env_bool, env_int, env_list, env_required, private_folder_suffix
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -115,7 +114,7 @@ CACHES = {
         # The default folder is per user: a name shared by everyone on a machine could be
         # pre-created by someone else. A system check in accounts/checks.py verifies it is usable.
         'LOCATION': (os.environ.get('DJANGO_CACHE_DIR') or '').strip()
-        or os.path.join(tempfile.gettempdir(), f'dikonekti-cache-{getpass.getuser()}'),
+        or os.path.join(tempfile.gettempdir(), f'dikonekti-cache-{private_folder_suffix()}'),
     }
 }
 

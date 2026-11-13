@@ -48,5 +48,6 @@ python manage.py test
   Over the limit the API answers `429` with a `Retry-After` header.
 - Rate-limit counters are kept in a file-based cache shared by all worker processes on one host.
   Running on several hosts needs a shared cache such as Redis.
+- If the limiter cannot take its lock within 2 seconds (for example the cache folder is on a stuck disk), the request is let through and an error is logged, so logins keep working but are not rate limited until it is fixed. Watch the log for "Could not take the rate-limit lock".
 - Behind the Next.js server every web login arrives from one IP, which is why login is limited by username, not IP.
 - The client address comes from the connection itself. `X-Forwarded-For` is ignored unless `DJANGO_NUM_PROXIES` says how many trusted proxies sit in front of Django, so a client cannot fake its address to get a fresh registration allowance.

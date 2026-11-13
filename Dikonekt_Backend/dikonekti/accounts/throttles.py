@@ -7,8 +7,10 @@ yet, so it is limited per client IP. Rates live in REST_FRAMEWORK['DEFAULT_THROT
 """
 import contextlib
 import hashlib
+import logging
 import os
 import threading
+import time
 
 from django.conf import settings
 from rest_framework.exceptions import ParseError
@@ -21,6 +23,13 @@ except ImportError:  # pragma: no cover
 
 _THREAD_LOCK = threading.Lock()
 
+# How long a request waits for the limiter's lock before giving up. A stuck lock must never
+# stall every login, so after this the request is let through and an error is logged.
+LOCK_TIMEOUT_SECONDS = 2.0
+_RETRY_SECONDS = 0.01
+
+logger = logging.getLogger(__name__)
+
 
 def _lock_file_path():
     """A lock file next to the cache files, when the cache is file based (shared by worker processes)."""
@@ -32,29 +41,52 @@ def _lock_file_path():
 
 @contextlib.contextmanager
 def _serialized():
-    """Make the throttle's read-modify-write of its counter atomic.
+    """Make the throttle's read-modify-write of its counter atomic. Yields whether the lock is held.
 
     DRF reads the request history, decides, then writes it back, so simultaneous requests
     all see the same old history and all get through. A thread lock stops that inside one
     process and an exclusive file lock stops it across worker processes on one host.
+    Waiting is bounded by LOCK_TIMEOUT_SECONDS: yields False if the lock could not be taken.
     """
-    with _THREAD_LOCK:
+    deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+    if not _THREAD_LOCK.acquire(timeout=LOCK_TIMEOUT_SECONDS):
+        yield False
+        return
+    try:
         path = _lock_file_path()
         if fcntl is None or path is None:
-            yield
+            yield True
             return
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         handle = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX)
-            yield
+            # flock has no timeout of its own, so try without blocking until the deadline.
+            while True:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        yield False
+                        return
+                    time.sleep(_RETRY_SECONDS)
+            yield True
         finally:
             os.close(handle)  # closing the descriptor also releases the lock
+    finally:
+        _THREAD_LOCK.release()
 
 
 class _Serialized:
     def allow_request(self, request, view):
-        with _serialized():
+        with _serialized() as held:
+            if not held:
+                logger.error(
+                    'Could not take the rate-limit lock within %s seconds; letting the request '
+                    'through unchecked (scope=%s). Check the throttle cache folder.',
+                    LOCK_TIMEOUT_SECONDS, self.scope,
+                )
+                return True
             return super().allow_request(request, view)
 
 
@@ -85,9 +117,24 @@ class _LoginThrottle(_Serialized, SimpleRateThrottle):
 class LoginMinuteThrottle(_LoginThrottle):
     scope = 'login_minute'
 
+    def allow_request(self, request, view):
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            request._login_minute_refused = True  # read by LoginHourThrottle
+        return allowed
+
 
 class LoginHourThrottle(_LoginThrottle):
     scope = 'login_hour'
+
+    def allow_request(self, request, view):
+        # DRF asks every throttle even after another one refused the request. A request the
+        # minute limit already turned away never reached a password check, so it must not use
+        # up the hourly allowance, or a locked-out user pressing Log in locks themselves out
+        # for the whole hour.
+        if getattr(request, '_login_minute_refused', False):
+            return True
+        return super().allow_request(request, view)
 
 
 class RegisterThrottle(_Serialized, SimpleRateThrottle):

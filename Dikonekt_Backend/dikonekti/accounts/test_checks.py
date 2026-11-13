@@ -8,11 +8,7 @@ from django.test import SimpleTestCase, override_settings
 
 from accounts.checks import check_throttle_cache
 from accounts.throttles import LoginMinuteThrottle
-from accounts.test_throttling import fake_request
-
-
-def file_cache(folder):
-    return {"default": {"BACKEND": "django.core.cache.backends.filebased.FileBasedCache", "LOCATION": str(folder)}}
+from accounts.test_throttling import fake_request, file_cache
 
 
 class ThrottleCacheCheckTests(SimpleTestCase):

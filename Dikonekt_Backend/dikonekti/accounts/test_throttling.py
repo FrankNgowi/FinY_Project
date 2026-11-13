@@ -1,3 +1,5 @@
+import contextlib
+import fcntl
 import json
 import multiprocessing
 import tempfile
@@ -12,12 +14,17 @@ from django.core.cache.backends.locmem import LocMemCache
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient, APITestCase
 
+from accounts import throttles
 from accounts.models import User
 from accounts.throttles import LoginHourThrottle, LoginMinuteThrottle, RegisterThrottle
 
 # Password hashing is deliberately slow; these tests make hundreds of login attempts.
 FAST_HASHER = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "throttle-tests"}}
+def file_cache(folder):
+    return {"default": {"BACKEND": "django.core.cache.backends.filebased.FileBasedCache", "LOCATION": str(folder)}}
+
+
 LOGIN = "/api/auth/login/"
 REGISTER = "/api/auth/register/"
 PASSWORD = "Correct#Horse2026"
@@ -100,6 +107,27 @@ class LoginThrottleTests(ThrottleTestCase):
             self.clock.advance(61)
         self.clock.advance(3600)
         self.assertEqual(self.login().status_code, 401)
+
+    def test_requests_the_minute_limit_refused_do_not_use_up_the_hourly_allowance(self):
+        # A locked-out user keeps pressing Log in: 5 attempts are allowed, 25 are refused.
+        for _ in range(30):
+            self.login()
+        self.clock.advance(61)
+        self.assertEqual(self.login().status_code, 401)
+        self.clock.advance(600)
+        self.assertEqual(self.login(password=PASSWORD).status_code, 200)
+
+    def test_the_wait_after_a_minute_refusal_is_about_a_minute_not_an_hour(self):
+        for _ in range(6):
+            self.login()
+        self.assertLessEqual(int(self.login()["Retry-After"]), 60)
+
+    def test_attempts_that_reach_the_password_check_still_count_toward_the_hour(self):
+        for _ in range(6):  # six minutes of five real attempts
+            for _ in range(5):
+                self.login()
+            self.clock.advance(61)
+        self.assertEqual(self.login().status_code, 429)
 
     def test_different_client_addresses_do_not_help_an_attacker_against_one_username(self):
         for i in range(5):
@@ -255,3 +283,103 @@ class SeveralWorkerProcessesTests(SimpleTestCase):
                 with multiprocessing.get_context("fork").Pool(6) as pool:
                     allowed = sum(pool.map(_attempts_in_a_worker_process, [8] * 6))
         self.assertEqual(allowed, 5)
+
+
+def within(seconds, function):
+    """Run `function` in a thread; fail the test instead of hanging if it does not finish."""
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(value=function()), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise AssertionError(f"still blocked after {seconds} seconds")
+    return result["value"]
+
+
+@override_settings(CACHES=LOCMEM)
+class StuckLockTests(SimpleTestCase):
+    """A limiter that cannot get its lock must never stall login: it lets the request through and logs."""
+
+    def setUp(self):
+        cache.clear()
+        patcher = mock.patch.object(throttles, "LOCK_TIMEOUT_SECONDS", 0.2)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_stuck_thread_lock_lets_the_request_through_and_logs_an_error(self):
+        throttles._THREAD_LOCK.acquire()
+        try:
+            with self.assertLogs("accounts.throttles", level="ERROR") as logs:
+                allowed = within(5, lambda: LoginMinuteThrottle().allow_request(fake_request("stuck"), None))
+        finally:
+            throttles._THREAD_LOCK.release()
+        self.assertTrue(allowed)
+        self.assertIn("lock", logs.output[0].lower())
+
+    def test_a_stuck_file_lock_lets_the_request_through_and_logs_an_error(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
+            handle = open(f"{folder}/.throttle.lock", "a")
+            fcntl.flock(handle, fcntl.LOCK_EX)  # another worker is holding the lock
+            try:
+                with self.assertLogs("accounts.throttles", level="ERROR"):
+                    allowed = within(5, lambda: LoginMinuteThrottle().allow_request(fake_request("stuck"), None))
+            finally:
+                handle.close()
+            self.assertTrue(allowed)
+            self.assertFalse(throttles._THREAD_LOCK.locked(), "the in-process lock must be released after giving up")
+
+    def test_the_limiter_works_normally_again_once_the_lock_is_free(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
+            handle = open(f"{folder}/.throttle.lock", "a")
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            with self.assertLogs("accounts.throttles", level="ERROR"):
+                within(5, lambda: LoginMinuteThrottle().allow_request(fake_request("back"), None))
+            handle.close()
+            results = [LoginMinuteThrottle().allow_request(fake_request("back"), None) for _ in range(7)]
+        self.assertEqual(results.count(True), 5)
+
+    def test_a_normal_request_logs_nothing(self):
+        with self.assertNoLogs("accounts.throttles", level="ERROR"):
+            self.assertTrue(LoginMinuteThrottle().allow_request(fake_request("fine"), None))
+
+    def test_the_lock_is_not_leaked_by_normal_use(self):
+        LoginMinuteThrottle().allow_request(fake_request("fine"), None)
+        self.assertFalse(throttles._THREAD_LOCK.locked())
+
+
+@contextlib.contextmanager
+def another_thread_holding_the_lock():
+    """Hold the limiter's in-process lock from a different thread, like a stuck worker thread."""
+    held, release = threading.Event(), threading.Event()
+
+    def hold():
+        with throttles._THREAD_LOCK:
+            held.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=hold, daemon=True)
+    holder.start()
+    assert held.wait(5), "the helper thread never got the lock"
+    try:
+        yield
+    finally:
+        release.set()
+        holder.join(5)
+
+
+@override_settings(CACHES=LOCMEM, PASSWORD_HASHERS=FAST_HASHER)
+class StuckLockLoginTests(ThrottleTestCase):
+    def test_login_still_answers_normally_while_the_limiter_is_stuck(self):
+        # The request runs on this thread (so it sees the test database); another thread holds the lock.
+        with mock.patch.object(throttles, "LOCK_TIMEOUT_SECONDS", 0.2), another_thread_holding_the_lock():
+            started = time.monotonic()
+            with self.assertLogs("accounts.throttles", level="ERROR"):
+                response = self.login(password=PASSWORD)
+            waited = time.monotonic() - started
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(waited, 5)
+
+    def test_a_wrong_password_is_still_refused_while_the_limiter_is_stuck(self):
+        with mock.patch.object(throttles, "LOCK_TIMEOUT_SECONDS", 0.2), another_thread_holding_the_lock():
+            with self.assertLogs("accounts.throttles", level="ERROR"):
+                self.assertEqual(self.login(password="wrong").status_code, 401)

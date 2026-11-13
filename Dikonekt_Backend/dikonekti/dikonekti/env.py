@@ -3,7 +3,9 @@
 Kept free of Django settings so the rules can be unit tested and so the start-up
 error always names the variable that is missing, never a secret value.
 """
+import getpass
 import os
+import re
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -30,7 +32,7 @@ def env_int(name, default):
     if raw is None or not raw.strip():
         return default
     value = raw.strip()
-    if not value.isdigit():
+    if not (value.isascii() and value.isdigit()):  # str.isdigit() also accepts '²', which int() rejects
         raise ImproperlyConfigured(f"The environment variable {name} must be a whole number (0 or more).")
     return int(value)
 
@@ -55,6 +57,24 @@ def allowed_hosts(debug, raw):
     if debug:
         return list(LOCAL_HOSTS)
     raise ImproperlyConfigured("The environment variable DJANGO_ALLOWED_HOSTS must list the allowed hosts when DJANGO_DEBUG is off.")
+
+
+def private_folder_suffix():
+    """A name for a per-user folder, taken from the running user and safe to put in a path.
+
+    Never raises: in a container started with an arbitrary user id there may be no user name
+    at all, and that must not stop the server from starting.
+    """
+    try:
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", getpass.getuser().strip())
+    except Exception:  # getpass raises KeyError, OSError, ImportError depending on the system
+        name = ""
+    if name:
+        return name
+    try:
+        return str(os.getuid())
+    except AttributeError:  # no user ids on this system
+        return "user"
 
 
 def _split(raw):
