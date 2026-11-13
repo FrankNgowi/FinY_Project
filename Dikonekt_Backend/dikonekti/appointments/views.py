@@ -2,6 +2,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsDisabledOrVerifiedDoctor, IsVerifiedDoctor
+
 from .models import Appointment
 from .permissions import IsDisabledUser, IsOwningDoctor
 from .serializers import (
@@ -28,13 +30,15 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
     def get_permissions(self):
         if self.request.method == 'POST':
             return [permissions.IsAuthenticated(), IsDisabledUser()]
-        return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsDisabledOrVerifiedDoctor()]
 
     def get_queryset(self):
         user = self.request.user
         if user.role == 'doctor':
             return user.appointments.all()
-        return user.requested_appointments.all()
+        if user.role == 'disabled':
+            return user.requested_appointments.all()
+        return Appointment.objects.none()  # an admin has none; the permission refuses first
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -49,7 +53,7 @@ class UpdateAppointmentStatusView(APIView):
     """PATCH /api/appointments/<id>/status/ — doctor-only, and only for
     appointments routed to that specific doctor."""
 
-    permission_classes = [permissions.IsAuthenticated, IsOwningDoctor]
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedDoctor, IsOwningDoctor]
 
     def get_object(self):
         appointment = generics.get_object_or_404(Appointment, pk=self.kwargs['pk'])

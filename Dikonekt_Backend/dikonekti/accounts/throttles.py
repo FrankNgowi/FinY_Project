@@ -160,3 +160,15 @@ class RegisterThrottle(_Serialized, SimpleRateThrottle):
 
     def get_cache_key(self, request, view):
         return self.cache_format % {'scope': self.scope, 'ident': self.get_ident(request)}
+
+
+class VerificationUploadThrottle(_Serialized, SimpleRateThrottle):
+    """At most 10 certificate uploads an hour per signed-in doctor (not per IP: the web app calls
+    Django from one server address). Only POST counts; reading the status is free."""
+
+    scope = 'verification_upload'
+
+    def get_cache_key(self, request, view):
+        if request.method != 'POST' or not request.user.is_authenticated:
+            return None
+        return self.cache_format % {'scope': self.scope, 'ident': request.user.pk}

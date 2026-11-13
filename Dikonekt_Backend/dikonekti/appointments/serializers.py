@@ -33,7 +33,7 @@ class CreateAppointmentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         patient = self.context['request'].user
-        if patient.registered_doctor_id is None:
+        if patient.approved_registered_doctor is None:
             raise serializers.ValidationError(
                 'You need a registered doctor before requesting an '
                 'appointment. Please add one from your profile.'
@@ -44,7 +44,7 @@ class CreateAppointmentSerializer(serializers.ModelSerializer):
         patient = self.context['request'].user
         return Appointment.objects.create(
             patient=patient,
-            doctor=patient.registered_doctor,
+            doctor=patient.approved_registered_doctor,
             **validated_data,
         )
 

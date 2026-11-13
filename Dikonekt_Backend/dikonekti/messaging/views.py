@@ -2,6 +2,8 @@ from django.db.models import Q
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
+from accounts.permissions import IsDisabledOrVerifiedDoctor
+
 from .models import Message
 from .serializers import CreateMessageSerializer, MessageSerializer
 
@@ -21,7 +23,7 @@ class MessageListCreateView(generics.ListCreateAPIView):
                                          `recipient_username`.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsDisabledOrVerifiedDoctor]
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -40,9 +42,13 @@ class MessageListCreateView(generics.ListCreateAPIView):
                 | Q(recipient=user, sender__username=patient_username)
             )
 
-        doctor_id = user.registered_doctor_id
-        if doctor_id is None:
+        if user.role != 'disabled':
+            return Message.objects.none()  # an admin has no threads; the permission refuses first
+
+        doctor = user.approved_registered_doctor
+        if doctor is None:
             return Message.objects.none()
+        doctor_id = doctor.pk
         return Message.objects.filter(
             Q(sender=user, recipient_id=doctor_id)
             | Q(recipient=user, sender_id=doctor_id)

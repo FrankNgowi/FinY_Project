@@ -2,6 +2,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsDisabledOrVerifiedDoctor, IsVerifiedDoctor
+
 from .models import EmergencyAlert
 from .permissions import IsDisabledUser, IsOwningDoctor
 from .serializers import CreateEmergencyAlertSerializer, EmergencyAlertSerializer
@@ -27,13 +29,15 @@ class AlertListCreateView(generics.ListCreateAPIView):
     def get_permissions(self):
         if self.request.method == 'POST':
             return [permissions.IsAuthenticated(), IsDisabledUser()]
-        return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsDisabledOrVerifiedDoctor()]
 
     def get_queryset(self):
         user = self.request.user
         if user.role == 'doctor':
             return user.received_alerts.all()
-        return user.sent_alerts.all()
+        if user.role == 'disabled':
+            return user.sent_alerts.all()
+        return EmergencyAlert.objects.none()  # an admin has no alerts; the permission refuses first
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -49,7 +53,7 @@ class AcknowledgeAlertView(APIView):
     alerts routed to that specific doctor (enforced by IsOwningDoctor's
     object-level check, not just the doctor role in general)."""
 
-    permission_classes = [permissions.IsAuthenticated, IsOwningDoctor]
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedDoctor, IsOwningDoctor]
 
     def get_object(self):
         alert = generics.get_object_or_404(EmergencyAlert, pk=self.kwargs['pk'])

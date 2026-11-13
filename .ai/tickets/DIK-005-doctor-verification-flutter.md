@@ -65,6 +65,7 @@ rejected        Your document was not accepted
 - [ ] The file picker offers only PDF, JPG and PNG. A file over 5 MB is refused with the message above and nothing is sent.
 - [ ] The upload sends the file unchanged as a multipart request, and a failed upload shows the server's message.
 - [ ] A doctor revoked while using the app is returned to the verification screen on the next request.
+- [ ] A refused upload is shown in plain words: a `429` shows "Too many uploads. Please wait a while and try again." and a `413` shows "The file is larger than 5 MB.", not Django's raw text.
 - [ ] Double-tapping Submit sends one request.
 - [ ] A Disabled User signing up sees verified doctors only, and sees the empty-list message when there are none, and can still create the account.
 - [ ] Disabled User screens behave exactly as before.
@@ -91,6 +92,7 @@ Uses `GET /api/me/` (new `verification_status`), `GET` and `POST /api/me/verific
 - `ApiClient` only sends JSON today. Add a multipart helper that keeps the bearer token, the silent refresh-on-401 retry and the existing error-message extraction. Do not duplicate that logic in a new service.
 - Add the `file_picker` package for choosing a file. Check the Android and iOS manifest/plist entries it needs for the pinned version.
 - Put the status polling and the `verification_required` handling in one place (the verification page and `ApiClient`), not in each dashboard widget.
+- `ApiClient` currently shows Django's `detail` text, which for a throttled request reads "Request was throttled. Expected available in N seconds.". DIK-003 adds a `429` (10 uploads per hour) and a `413` (body over 6 MB) to the upload, so map those two statuses to the fixed messages in the verification service.
 - Follow the existing doctor dashboard styling and the `Semantics` and voice-assistant conventions used in `dashboard_components.dart`.
 - The Flutter project contains duplicate nested folders (`dikonekti/dikonekti`). Edit only the top-level project.
 

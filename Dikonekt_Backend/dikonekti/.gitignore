@@ -5,3 +5,6 @@
 # Python
 __pycache__/
 *.pyc
+
+# Doctors' uploaded certificates (the debug default for DJANGO_MEDIA_ROOT). Never commit these.
+.private-media/

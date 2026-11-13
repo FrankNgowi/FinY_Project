@@ -1,7 +1,8 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .models import User
+from . import files
+from .models import DoctorVerification, User
 
 
 def _display_name(user) -> str:
@@ -46,13 +47,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     display_name = serializers.SerializerMethodField()
     registered_doctor = DoctorSummarySerializer(read_only=True)
+    # A doctor's certificate status; null for every other role.
+    verification_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'username', 'role', 'display_name', 'first_name', 'middle_name',
             'last_name', 'email', 'phone_number', 'area', 'disability_type',
-            'specialization', 'registered_doctor',
+            'specialization', 'registered_doctor', 'verification_status',
         ]
 
     def get_display_name(self, obj):
@@ -111,7 +114,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             if doctor_username:
                 try:
                     attrs['registered_doctor'] = User.objects.get(
-                        username=doctor_username, role=User.Role.DOCTOR,
+                        username=doctor_username,
+                        role=User.Role.DOCTOR,
+                        verification__status=DoctorVerification.Status.APPROVED,
                     )
                 except User.DoesNotExist:
                     raise serializers.ValidationError(
@@ -126,3 +131,47 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
+
+
+class VerificationStatusSerializer(serializers.ModelSerializer):
+    """What a doctor may see of their own record. Never the file."""
+
+    class Meta:
+        model = DoctorVerification
+        fields = ['status', 'submitted_at', 'rejection_reason']
+        read_only_fields = fields
+
+
+class DocumentUploadSerializer(serializers.Serializer):
+    document = serializers.FileField(allow_empty_file=True)
+
+    def validate_document(self, value):
+        try:
+            self.kind = files.validate_document(value)
+        except files.InvalidDocument as error:
+            raise serializers.ValidationError(error.message)
+        return value
+
+
+class AdminVerificationSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    display_name = serializers.SerializerMethodField()
+    specialization = serializers.CharField(source='user.specialization', read_only=True)
+    area = serializers.CharField(source='user.area', read_only=True)
+    phone_number = serializers.CharField(source='user.phone_number', read_only=True)
+    email = serializers.CharField(source='user.email', read_only=True)
+
+    class Meta:
+        model = DoctorVerification
+        fields = [
+            'id', 'username', 'display_name', 'specialization', 'area', 'phone_number',
+            'email', 'status', 'submitted_at', 'rejection_reason', 'reviewed_at',
+        ]
+        read_only_fields = fields
+
+    def get_display_name(self, obj):
+        return _display_name(obj.user)
+
+
+class RejectSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500)
