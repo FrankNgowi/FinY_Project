@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Palette taken from the Flutter doctor dashboard. Light theme only. */
+:root {
+  --page: #f3f7f6;
+  --surface: #ffffff;
+  --line: #e7ecef;
+  --ink: #14213d;
+  --muted: #5b6573;
+  --navy: #1d3557;
+  --steel: #457b9d;
+  --danger: #c1121f;
+  --teal: #2a9d8f;
+  --teal-soft: #e8f5ee;
+  --warn-soft: #fff4e5;
+  /* Dikonekti mobile brand (login screen mark and title). */
+  --brand: #6750a4;
+  --brand-light: #9b7fe8;
+  --brand-ink: #2d2150;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-navy: var(--navy);
+  --color-steel: var(--steel);
+  --color-danger: var(--danger);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-warn-soft: var(--warn-soft);
+  --color-brand: var(--brand);
+  --color-brand-light: var(--brand-light);
+  --color-brand-ink: var(--brand-ink);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+:focus-visible {
+  outline: 3px solid var(--steel);
+  outline-offset: 2px;
+}
+
+dialog::backdrop {
+  background: rgb(20 33 61 / 0.5);
+}
