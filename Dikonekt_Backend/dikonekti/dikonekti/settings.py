@@ -97,6 +97,7 @@ REST_FRAMEWORK = {
         'login_minute': '5/min',
         'login_hour': '30/hour',
         'register': '5/hour',
+        'verification_upload': '10/hour',
     },
     # How many reverse proxies sit in front of Django. 0 (the default) means the connection's
     # own address is used and X-Forwarded-For is ignored, so a client cannot dodge the register
@@ -104,6 +105,18 @@ REST_FRAMEWORK = {
     # overwrites the header really is in front of Django.
     'NUM_PROXIES': env_int('DJANGO_NUM_PROXIES', 0),
 }
+
+# Uploaded doctor certificates. Private: no URL serves this folder. Required unless DEBUG,
+# so a deployment cannot silently keep certificates in a throwaway folder. A start-up check
+# in accounts/checks.py verifies it is usable and not writable by others.
+MEDIA_ROOT = (
+    (os.environ.get('DJANGO_MEDIA_ROOT') or '').strip()
+    or (str(BASE_DIR / '.private-media') if DEBUG else env_required('DJANGO_MEDIA_ROOT'))
+)
+
+# Certificates are readable by the server's user only (files 600, folders 700).
+FILE_UPLOAD_PERMISSIONS = 0o600
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o700
 
 # Throttle counters live in the cache. A file-based cache is shared by every worker
 # process on one host (the default local-memory cache is per process, so the limits

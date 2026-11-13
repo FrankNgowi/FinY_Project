@@ -4,8 +4,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import User
-from .permissions import IsDoctor
+from .models import DoctorVerification, User
+from .permissions import IsVerifiedDoctor
 from .serializers import DoctorListSerializer, RegisterSerializer, UserProfileSerializer
 from .throttles import LoginHourThrottle, LoginMinuteThrottle, RegisterThrottle
 
@@ -73,10 +73,13 @@ class DoctorListView(generics.ListAPIView):
     """GET /api/doctors/ — public.
 
     Deliberately unauthenticated: a brand-new disabled user needs to see
-    this list *before* they have any credentials, during sign-up.
+    this list *before* they have any credentials, during sign-up. Only approved
+    doctors are listed, so nobody can pick an unverified one.
     """
 
-    queryset = User.objects.filter(role=User.Role.DOCTOR).order_by('first_name')
+    queryset = User.objects.filter(
+        role=User.Role.DOCTOR, verification__status=DoctorVerification.Status.APPROVED,
+    ).order_by('first_name')
     serializer_class = DoctorListSerializer
     permission_classes = [permissions.AllowAny]
 
@@ -89,7 +92,7 @@ class PatientListView(generics.ListAPIView):
     """
 
     serializer_class = UserProfileSerializer
-    permission_classes = [permissions.IsAuthenticated, IsDoctor]
+    permission_classes = [permissions.IsAuthenticated, IsVerifiedDoctor]
 
     def get_queryset(self):
         return self.request.user.patients.all().order_by('first_name')

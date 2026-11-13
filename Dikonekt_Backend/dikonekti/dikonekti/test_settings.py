@@ -16,13 +16,14 @@ BASE_ENV = {
     "DJANGO_DB_USER": "db_user",
     "DJANGO_DB_PASSWORD": "db_password",
     "DJANGO_ALLOWED_HOSTS": "api.example.test",
+    "DJANGO_MEDIA_ROOT": "/srv/dikonekti-certificates",
 }
 PROBE = (
     "import json, dikonekti.settings as s;"
     "print(json.dumps({"
     "'debug': s.DEBUG, 'secret': s.SECRET_KEY, 'hosts': s.ALLOWED_HOSTS,"
     "'db': s.DATABASES['default'], 'cors': s.CORS_ALLOWED_ORIGINS,"
-    "'cors_all': getattr(s, 'CORS_ALLOW_ALL_ORIGINS', False),'num_proxies': s.REST_FRAMEWORK.get('NUM_PROXIES', 'unset'),'cache': s.CACHES['default']}))"
+    "'cors_all': getattr(s, 'CORS_ALLOW_ALL_ORIGINS', False),'num_proxies': s.REST_FRAMEWORK.get('NUM_PROXIES', 'unset'),'cache': s.CACHES['default'], 'media': s.MEDIA_ROOT, 'rates': s.REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'], 'file_perms': s.FILE_UPLOAD_PERMISSIONS, 'dir_perms': s.FILE_UPLOAD_DIRECTORY_PERMISSIONS}))"
 )
 
 
@@ -133,3 +134,32 @@ class NoSecretsInSourceTests(SimpleTestCase):
         self.assertNotIn("1234" + "5678", source)  # the old database password, split so this file does not contain it
         self.assertNotIn("ALLOWED_HOSTS = ['*']", source)
         self.assertNotIn("CORS_ALLOW_ALL_ORIGINS = True", source)
+
+
+class MediaRootSettingTests(SimpleTestCase):
+    def test_without_debug_a_missing_media_root_stops_start_up_and_is_named(self):
+        result = load_settings(remove=["DJANGO_MEDIA_ROOT"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DJANGO_MEDIA_ROOT", result.stderr)
+
+    def test_without_debug_a_blank_media_root_counts_as_missing(self):
+        result = load_settings(DJANGO_MEDIA_ROOT="   ")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DJANGO_MEDIA_ROOT", result.stderr)
+
+    def test_with_debug_it_defaults_to_a_private_folder_next_to_manage_py(self):
+        settings = loaded(load_settings(DJANGO_DEBUG="true", remove=["DJANGO_MEDIA_ROOT", "DJANGO_ALLOWED_HOSTS"]))
+        self.assertEqual(settings["media"], str(BACKEND_DIR / ".private-media"))
+
+    def test_the_variable_wins_over_the_debug_default(self):
+        settings = loaded(load_settings(DJANGO_DEBUG="true", DJANGO_MEDIA_ROOT="/srv/certs"))
+        self.assertEqual(settings["media"], "/srv/certs")
+
+    def test_upload_rate_is_ten_per_hour(self):
+        settings = loaded(load_settings(DJANGO_MEDIA_ROOT="/srv/certs"))
+        self.assertEqual(settings["rates"]["verification_upload"], "10/hour")
+
+    def test_uploaded_files_and_folders_are_private_to_the_owner(self):
+        settings = loaded(load_settings())
+        self.assertEqual(settings["file_perms"], 0o600)
+        self.assertEqual(settings["dir_perms"], 0o700)

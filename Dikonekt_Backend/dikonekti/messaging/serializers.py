@@ -52,14 +52,14 @@ class CreateMessageSerializer(serializers.ModelSerializer):
         attrs['body'] = body
 
         if sender.role == 'disabled':
-            if sender.registered_doctor_id is None:
+            if sender.approved_registered_doctor is None:
                 raise serializers.ValidationError(
                     'You need a registered doctor before you can send a '
                     'message. Please add one from your profile.'
                 )
-            attrs['recipient'] = sender.registered_doctor
+            attrs['recipient'] = sender.approved_registered_doctor
             attrs.pop('recipient_username', None)
-        else:
+        elif sender.role == 'doctor':
             recipient_username = attrs.pop('recipient_username', None)
             if not recipient_username:
                 raise serializers.ValidationError(
@@ -77,6 +77,8 @@ class CreateMessageSerializer(serializers.ModelSerializer):
                     {'recipient_username': 'That patient is not registered with you.'}
                 )
             attrs['recipient'] = recipient
+        else:
+            raise serializers.ValidationError('This account cannot send messages.')
 
         return attrs
 

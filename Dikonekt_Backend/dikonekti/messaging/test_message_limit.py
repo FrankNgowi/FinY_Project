@@ -1,6 +1,6 @@
 from rest_framework.test import APIClient, APITestCase
 
-from accounts.models import User
+from accounts.models import DoctorVerification, User
 from messaging.models import MESSAGE_BODY_MAX_LENGTH, Message
 
 TOO_LONG = "Message is too long (max 2000 characters)."
@@ -9,6 +9,7 @@ TOO_LONG = "Message is too long (max 2000 characters)."
 class MessageLimitTests(APITestCase):
     def setUp(self):
         self.doctor = User.objects.create_user(username="dr1", password="x", role="doctor")
+        DoctorVerification.objects.create(user=self.doctor, status="approved")  # doctors need approval to use messages
         self.patient = User.objects.create_user(
             username="p1", password="x", role="disabled", registered_doctor=self.doctor
         )

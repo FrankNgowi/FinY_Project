@@ -48,7 +48,7 @@ class CreateEmergencyAlertSerializer(serializers.ModelSerializer):
         patient = self.context['request'].user
         return EmergencyAlert.objects.create(
             patient=patient,
-            doctor=patient.registered_doctor,
+            doctor=patient.approved_registered_doctor,
             patient_area=patient.area,
             patient_phone_number=patient.phone_number,
             disability_type=patient.disability_type,

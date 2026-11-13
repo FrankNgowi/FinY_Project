@@ -6,7 +6,7 @@ from unittest import mock, skipIf
 
 from django.test import SimpleTestCase, override_settings
 
-from accounts.checks import check_throttle_cache
+from accounts.checks import check_media_root, check_throttle_cache
 from accounts.throttles import LoginMinuteThrottle
 from accounts.test_throttling import fake_request, file_cache
 
@@ -88,3 +88,49 @@ class LockFileTests(SimpleTestCase):
         with tempfile.TemporaryDirectory() as folder, override_settings(CACHES=file_cache(folder)):
             LoginMinuteThrottle().allow_request(fake_request("perm"), None)
             self.assertEqual(stat.S_IMODE((Path(folder) / ".throttle.lock").stat().st_mode), 0o600)
+
+
+class MediaRootCheckTests(SimpleTestCase):
+    def test_a_private_writable_folder_passes(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(MEDIA_ROOT=folder):
+            self.assertEqual(check_media_root(None), [])
+
+    def test_a_missing_folder_is_created_privately_and_passes(self):
+        with tempfile.TemporaryDirectory() as parent:
+            folder = Path(parent) / "new" / "media"
+            with override_settings(MEDIA_ROOT=str(folder)):
+                self.assertEqual(check_media_root(None), [])
+            self.assertEqual(stat.S_IMODE(folder.stat().st_mode), 0o700)
+
+    @skipIf(os.geteuid() == 0, "root can write anywhere, so a read-only folder proves nothing")
+    def test_an_unwritable_folder_is_reported_with_E003_naming_the_setting(self):
+        with tempfile.TemporaryDirectory() as parent:
+            folder = Path(parent) / "locked"
+            folder.mkdir(mode=0o500)
+            with override_settings(MEDIA_ROOT=str(folder)):
+                errors = check_media_root(None)
+        self.assertEqual([e.id for e in errors], ["accounts.E003"])
+        self.assertIn("DJANGO_MEDIA_ROOT", errors[0].msg)
+        self.assertIn(str(folder), errors[0].msg)
+
+    def test_a_folder_that_other_users_can_write_to_is_reported(self):
+        for mode in (0o777, 0o770, 0o757, 0o722):
+            with tempfile.TemporaryDirectory() as parent:
+                folder = Path(parent) / "shared"
+                folder.mkdir()
+                folder.chmod(mode)
+                with override_settings(MEDIA_ROOT=str(folder)):
+                    errors = check_media_root(None)
+                self.assertEqual([e.id for e in errors], ["accounts.E003"], oct(mode))
+                self.assertIn("writable", errors[0].msg)
+
+    def test_a_folder_owned_by_someone_else_is_reported(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(MEDIA_ROOT=folder):
+            with mock.patch("os.getuid", return_value=os.stat(folder).st_uid + 1, create=True):
+                errors = check_media_root(None)
+        self.assertEqual([e.id for e in errors], ["accounts.E003"])
+        self.assertIn("owned by", errors[0].msg)
+
+    def test_the_check_is_part_of_the_projects_system_checks(self):
+        from django.core.checks import registry
+        self.assertIn(check_media_root, registry.registry.registered_checks)

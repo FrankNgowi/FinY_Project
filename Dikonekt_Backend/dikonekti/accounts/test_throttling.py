@@ -16,7 +16,7 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIClient, APITestCase
 
 from accounts import throttles
-from accounts.models import User
+from accounts.models import DoctorVerification, User
 from accounts.throttles import LoginHourThrottle, LoginMinuteThrottle, RegisterThrottle
 
 # Password hashing is deliberately slow; these tests make hundreds of login attempts.
@@ -51,7 +51,8 @@ class ThrottleTestCase(APITestCase):
             patcher = mock.patch.object(throttle, "timer", staticmethod(self.clock))
             patcher.start()
             self.addCleanup(patcher.stop)
-        User.objects.create_user(username="dr1", password=PASSWORD, role="doctor")
+        doctor = User.objects.create_user(username="dr1", password=PASSWORD, role="doctor")
+        DoctorVerification.objects.create(user=doctor, status="approved")
 
     def login(self, username="dr1", password="wrong", **extra):
         return self.client.post(LOGIN, {"username": username, "password": password}, format="json", **extra)
