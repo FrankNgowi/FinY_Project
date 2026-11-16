@@ -56,6 +56,35 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher icons for every platform, generated from assets/icon/ by flutter_launcher_icons
+# (run `dart run flutter_launcher_icons` after changing the art or this block; see assets/icon/README.md).
+# The generated files are committed, so building the app does not need the tool.
+flutter_launcher_icons:
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  android: true
+  # Adaptive icon: solid brand-purple background plus the glyph-only layer. The layer is already
+  # sized for Android's 66 dp safe circle, so the tool's default 16 % extra inset is turned off.
+  adaptive_icon_background: "#6750A4"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+  adaptive_icon_foreground_inset: 0
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#6750A4"
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#6750A4"
+    theme_color: "#6750A4"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

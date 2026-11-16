@@ -101,3 +101,5 @@ None.
 | `dikonekti/web/manifest.json` | Modified (name, short name, theme colour) |
 | `dikonekti/windows/runner/resources/app_icon.ico` | Modified (generated) |
 | `dikonekti/macos/Runner/Assets.xcassets/AppIcon.appiconset/*` | Modified (generated) |
+
+**Scope note (written when DIK-008 was implemented).** Compared with the table above: `assets/icon/` is not added to `flutter: assets:` (the tool reads the PNGs from disk, so they are not bundled into the app); the two SVG sources and an `assets/icon/README.md` are added next to the PNGs so the art can be redrawn; `web/index.html` also changes (title and Apple title) so the tab and the installed web app agree with the manifest; the tool generates the square legacy Android icon only, not a round one; and the generated iOS catalog gains legacy 50, 57 and 72 pt sizes. `ios/Runner.xcodeproj/project.pbxproj` was deliberately left unchanged (the tool's edit to it is wrong). `pubspec.lock` only gains the icon tool and its dependencies.
