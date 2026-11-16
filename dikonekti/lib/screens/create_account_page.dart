@@ -6,6 +6,12 @@ import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
+/// What to say once an account is created. A doctor is told the next step:
+/// they cannot use the app until their certificate is approved.
+String registrationSuccessMessage({required bool isDoctor}) => isDoctor
+    ? 'Account created. Next, upload your confirmation letter or certificate.'
+    : 'Account created successfully.';
+
 class CreateAccountPage extends StatefulWidget {
   const CreateAccountPage({super.key, required this.onLoginSuccess});
 
@@ -209,7 +215,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
         specialization: resolvedSpecialization,
       );
 
-      _showMessage('Account created successfully.');
+      _showMessage(registrationSuccessMessage(isDoctor: _isDoctorForm));
       if (!mounted) return;
 
       // Registration already returns a token pair — the account is
@@ -453,8 +459,8 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'No doctors have registered yet. You can still create your '
-                'account and add a doctor later from your profile.',
+                'No verified doctors are available yet. You can add one later '
+                'from your profile.',
                 style: TextStyle(fontSize: 12.5, color: Colors.orange.shade900),
               ),
             ),

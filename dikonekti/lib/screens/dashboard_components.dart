@@ -17,6 +17,7 @@ import 'package:dikonekti/services/message_api_service.dart';
 import 'package:dikonekti/services/user_api_service.dart';
 import 'package:dikonekti/services/voice_trigger_service.dart';
 import 'package:dikonekti/widgets/accessibility_settings.dart';
+import 'package:dikonekti/widgets/logout_button.dart';
 import 'package:dikonekti/widgets/voice_assistant_service.dart';
 
 import 'helpers.dart';
@@ -142,7 +143,7 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
       appBar: AppBar(
         title: const Text('My Dashboard'),
         actions: [
-          _LogoutButton(onLogout: widget.onLogout),
+          LogoutButton(onLogout: widget.onLogout),
           const AccessibilityButton(),
         ],
       ),
@@ -477,72 +478,6 @@ class _DisabledUserDashboardState extends State<DisabledUserDashboard> {
 }
 
 /// Confirms, then logs out. Used in the AppBar of both dashboards.
-class _LogoutButton extends StatelessWidget {
-  const _LogoutButton({required this.onLogout});
-
-  final VoidCallback onLogout;
-
-  Future<void> _confirmLogout(BuildContext context) async {
-    final accessibility = AccessibilitySettings.of(context);
-    if (accessibility.voiceAssistantEnabled) {
-      VoiceAssistantService.speak(
-        'Log out button. Double tap to log out of your account.',
-      );
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: const Icon(
-            Icons.logout_rounded,
-            color: Color(0xFF6750A4),
-            size: 32,
-          ),
-          title: const Text('Log Out?'),
-          content: const Text(
-            'You will need to sign in again to access your dashboard.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFC1121F),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Log Out'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      if (accessibility.voiceAssistantEnabled) {
-        VoiceAssistantService.speak('Logged out.');
-      }
-      onLogout();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Log out button',
-      button: true,
-      hint: 'Double tap to log out',
-      child: IconButton(
-        icon: const Icon(Icons.logout_rounded),
-        tooltip: 'Log out',
-        onPressed: () => _confirmLogout(context),
-      ),
-    );
-  }
-}
-
 /// Bottom sheet shown from the disabled user's "My Doctor" quick action.
 class _DoctorInfoSheet extends StatelessWidget {
   const _DoctorInfoSheet({required this.doctor});
@@ -2287,7 +2222,7 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
       appBar: AppBar(
         title: const Text('Doctor Dashboard'),
         actions: [
-          _LogoutButton(onLogout: widget.onLogout),
+          LogoutButton(onLogout: widget.onLogout),
           const AccessibilityButton(),
         ],
       ),

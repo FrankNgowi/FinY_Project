@@ -1,3 +1,5 @@
+import 'doctor_verification.dart';
+
 /// Minimal doctor info embedded directly in a disabled user's own profile
 /// response, so "My Doctor" never needs a second network call or a local
 /// lookup against some other list.
@@ -50,6 +52,7 @@ class UserAccount {
     this.disabilityType,
     this.specialization,
     this.registeredDoctor,
+    this.verificationStatus,
   });
 
   final String username;
@@ -74,7 +77,17 @@ class UserAccount {
   /// registered with a doctor yet.
   final DoctorSummary? registeredDoctor;
 
+  /// Only meaningful when [role] is 'doctor'; null for every other role (and
+  /// when the backend does not send it).
+  final VerificationStatus? verificationStatus;
+
   bool get isDoctor => role.toLowerCase() == 'doctor';
+
+  /// A doctor whose certificate is not approved yet. A missing or unknown
+  /// status counts as not approved, so a surprise value never opens the
+  /// dashboard (the backend enforces the same rule on every endpoint).
+  bool get needsVerification =>
+      isDoctor && verificationStatus != VerificationStatus.approved;
 
   String get fullName {
     final parts = [
@@ -108,6 +121,10 @@ class UserAccount {
       specialization: json['specialization'] as String?,
       registeredDoctor: json['registered_doctor'] != null
           ? DoctorSummary.fromJson(json['registered_doctor'] as Map<String, dynamic>)
+          : null,
+      verificationStatus: json.containsKey('verification_status') &&
+              json['verification_status'] != null
+          ? VerificationStatus.parse(json['verification_status'])
           : null,
     );
   }
