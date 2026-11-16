@@ -13,6 +13,7 @@ export function makeProfile(overrides: Partial<UserProfile> = {}): UserProfile {
     area: "Kibera",
     disability_type: "Vision",
     specialization: null,
+    verification_status: null,
     ...overrides,
   };
 }
@@ -29,6 +30,7 @@ export function makeDoctor(overrides: Partial<UserProfile> = {}): UserProfile {
     area: "Nairobi",
     disability_type: null,
     specialization: "Cardiology",
+    verification_status: "approved",
     ...overrides,
   });
 }

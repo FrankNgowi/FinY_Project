@@ -22,4 +22,28 @@ describe("BrandHeader", () => {
     render(<BrandHeader asHeading />);
     expect(screen.getByRole("heading", { level: 1, name: "Dikonekti" })).toBeInTheDocument();
   });
+
+  it("is_not_a_link_by_default", () => {
+    render(<BrandHeader />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("links_the_mark_and_name_to_the_given_home_address_with_a_clear_label", () => {
+    render(<BrandHeader homeHref="/" />);
+    const link = screen.getByRole("link", { name: "Dikonekti home" });
+    expect(link).toHaveAttribute("href", "/");
+    expect(link).toHaveTextContent("Dikonekti");
+    expect(link.querySelector("svg")).not.toBeNull();
+  });
+
+  it("keeps_the_tagline_outside_the_link", () => {
+    render(<BrandHeader homeHref="/" />);
+    expect(screen.getByRole("link", { name: "Dikonekti home" })).not.toHaveTextContent("Care, connected.");
+    expect(screen.getByText("Care, connected.")).toBeInTheDocument();
+  });
+
+  it("still_hides_the_decorative_mark_from_screen_readers_inside_the_link", () => {
+    const { container } = render(<BrandHeader homeHref="/" />);
+    expect(container.querySelector("svg")?.closest("[aria-hidden=true]")).not.toBeNull();
+  });
 });

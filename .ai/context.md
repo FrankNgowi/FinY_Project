@@ -33,6 +33,12 @@ Build order: DIK-002 (backend hardening) then DIK-003 (doctor verification backe
 - File rules (type check from the first bytes, 5 MB, private storage, delete after commit) are all in `accounts/files.py`. Certificates are stored in `DJANGO_MEDIA_ROOT` (required unless debug; checked at start-up by `accounts.E003`).
 - Create an admin with `python manage.py create_admin <username>`.
 
+## Web: doctor verification (DIK-004)
+
+- `decideRoute` (`dikonekti-web/src/lib/route-gate.ts`) returns `verification` for a doctor whose `verification_status` is not `approved` (unknown or missing counts as not approved). The home page and `/verification` redirect each other's visitors.
+- The proxy (`src/app/api/[...path]/route.ts`) reads bodies as bytes with a 6 MB cap (`src/lib/read-body.ts`); `apiFetch` sends `FormData` unchanged and redirects on `403 verification_required`.
+- `LogoutButton`, `ErrorBanner` and `ProfileLoadError` live in `src/components/` because several features use them.
+
 ## Running the backend
 
 `Dikonekt_Backend/dikonekti/README.md` explains how to run and test it. The server needs `DJANGO_SECRET_KEY`, `DJANGO_DB_NAME`, `DJANGO_DB_USER` and `DJANGO_DB_PASSWORD` in the environment (and `DJANGO_ALLOWED_HOSTS` and `DJANGO_MEDIA_ROOT` unless `DJANGO_DEBUG=true`); without them it stops at start-up and names the missing one. Copy `.env.example` and load it with `set -a; . ./.env; set +a`.

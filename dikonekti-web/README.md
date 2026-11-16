@@ -1,6 +1,6 @@
 # dikonekti-web
 
-Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tailwind). It talks to the existing Django REST API in `Dikonekt_Backend/`. Only doctors can use it; other roles see a "use the mobile app" page.
+Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tailwind). It talks to the existing Django REST API in `Dikonekt_Backend/`. Only approved doctors can use the dashboard; a doctor who is not approved yet uploads a confirmation letter or certificate on `/verification`. Other roles see a "use the mobile app" page.
 
 ## How it works
 
@@ -9,6 +9,9 @@ Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tail
 - `src/proxy.ts` (Next 16's replacement for `middleware.ts`) redirects anonymous visitors and refreshes an expired access token.
 - `src/lib/proxy-path.ts` is the allowlist of Django endpoints the proxy will forward.
 - `src/lib/django.ts` is the only server-side code that calls Django. `src/lib/api-client.ts` is the only browser-side caller of the web app's own `/api/*` routes.
+- Doctor verification: `src/lib/route-gate.ts` sends a doctor whose `verification_status` (from `GET /api/me/`) is anything but `approved` to `/verification`, and an approved doctor who opens `/verification` back to `/`. The panel polls `me/verification` every 30 seconds only while the document is pending. If any request answers `403` with `verification_required` (approval withdrawn while the dashboard was open), `apiFetch` sends the doctor to `/verification`.
+- Uploads: the browser sends `FormData` (no forced content type). The proxy reads request bodies as bytes with `src/lib/read-body.ts` and refuses more than 6 MB with `413`, before Django is called; Django enforces the real 5 MB limit and checks the file type. Next's own body limit does not apply to `/api` routes, so this cap is the only one.
+- Deploy the Django backend with doctor verification before this web app: a doctor profile without `verification_status` is treated as not approved.
 - `src/lib/schemas/auth.ts` holds the login and registration rules; the forms (React Hook Form) and the API routes both use it.
 
 ## Setup

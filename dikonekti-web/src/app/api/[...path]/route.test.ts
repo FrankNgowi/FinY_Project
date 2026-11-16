@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, PATCH, POST } from "./route";
@@ -10,7 +11,7 @@ const json = (body: unknown, status = 200) =>
 function call(
   handler: Handler,
   path: string[],
-  init: { method?: string; cookie?: string; headers?: Record<string, string>; body?: string; query?: string } = {},
+  init: { method?: string; cookie?: string; headers?: Record<string, string>; body?: string | Uint8Array<ArrayBuffer>; query?: string } = {},
 ) {
   const headers = new Headers(init.headers);
   if (init.cookie) headers.set("cookie", init.cookie);
@@ -154,7 +155,7 @@ describe("API proxy", () => {
     expect(res.status).toBe(201);
     const init = fetchMock.mock.calls[0][1];
     expect(init.method).toBe("POST");
-    expect(init.body).toBe(body);
+    expect(new TextDecoder().decode(init.body)).toBe(body);
     expect(new Headers(init.headers).get("content-type")).toBe("application/json");
   });
 
@@ -186,5 +187,122 @@ describe("API proxy", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).message).toMatch(/not configured/i);
     expect(logged).toHaveBeenCalledWith(expect.stringContaining("API_BASE_URL"));
+  });
+
+  describe("uploads", () => {
+    const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+    const BOUNDARY = "----dik-test-boundary";
+    const multipart = (file: Uint8Array) => {
+      const enc = new TextEncoder();
+      const head = enc.encode(
+        `--${BOUNDARY}\r\nContent-Disposition: form-data; name="document"; filename="c.pdf"\r\nContent-Type: application/pdf\r\n\r\n`,
+      );
+      const tail = enc.encode(`\r\n--${BOUNDARY}--\r\n`);
+      const out = new Uint8Array(head.length + file.length + tail.length);
+      out.set(head, 0);
+      out.set(file, head.length);
+      out.set(tail, head.length + file.length);
+      return out;
+    };
+    // Every byte value, including 0x00 and 0xFF and sequences that are not valid UTF-8.
+    const binary = (size: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 255);
+    const headers = { "content-type": `multipart/form-data; boundary=${BOUNDARY}` };
+
+    it("forwards_a_1_mb_binary_upload_byte_for_byte_with_its_boundary_content_type", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(json({ status: "pending" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const body = multipart(binary(1024 * 1024));
+      const res = await call(POST, ["me", "verification"], { method: "POST", cookie: cookie("ACC"), body, headers });
+      expect(res.status).toBe(200);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://django.test/api/me/verification/");
+      expect(init.method).toBe("POST");
+      expect(init.body).toBeInstanceOf(Uint8Array);
+      expect(init.body.byteLength).toBe(body.byteLength);
+      expect(sha(init.body)).toBe(sha(body));
+      expect(new Headers(init.headers).get("content-type")).toBe(headers["content-type"]);
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer ACC");
+    });
+
+    it("refuses_a_body_over_6_mb_with_413_and_never_calls_django", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const body = multipart(binary(6 * 1024 * 1024 + 1));
+      const res = await call(POST, ["me", "verification"], { method: "POST", cookie: cookie("ACC"), body, headers });
+      expect(res.status).toBe(413);
+      expect((await res.json()).message).toBe("The request is too large.");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses_from_the_declared_length_even_when_the_real_body_is_small", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call(POST, ["me", "verification"], {
+        method: "POST",
+        cookie: cookie("ACC"),
+        body: multipart(binary(10)),
+        headers: { ...headers, "content-length": String(6 * 1024 * 1024 + 1) },
+      });
+      expect(res.status).toBe(413);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("accepts_a_body_of_exactly_6_mb", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(json({ status: "pending" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const exact = new Uint8Array(6 * 1024 * 1024);
+      const res = await call(POST, ["me", "verification"], { method: "POST", cookie: cookie("ACC"), body: exact, headers });
+      expect(res.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("resends_the_identical_bytes_when_it_retries_after_refreshing_the_token", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json({ detail: "expired" }, 401))
+        .mockResolvedValueOnce(json({ access: "NEW", refresh: "NEWREF" }))
+        .mockResolvedValueOnce(json({ status: "pending" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const body = multipart(binary(50_000));
+      const res = await call(POST, ["me", "verification"], { method: "POST", cookie: cookie("OLD", "REF"), body, headers });
+      expect(res.status).toBe(200);
+      const first = fetchMock.mock.calls[0][1].body;
+      const second = fetchMock.mock.calls[2][1].body;
+      expect(sha(first)).toBe(sha(body));
+      expect(sha(second)).toBe(sha(body));
+      expect(new Headers(fetchMock.mock.calls[2][1].headers).get("content-type")).toBe(headers["content-type"]);
+    });
+
+    it("relays_django_refusals_with_their_status_so_the_browser_can_explain_them", async () => {
+      for (const status of [400, 409, 413, 429]) {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: `refused ${status}` }, status)));
+        const res = await call(POST, ["me", "verification"], {
+          method: "POST",
+          cookie: cookie("ACC"),
+          body: multipart(binary(10)),
+          headers,
+        });
+        expect(res.status).toBe(status);
+        expect(await res.json()).toEqual({ detail: `refused ${status}` });
+      }
+    });
+
+    it("relays_the_verification_required_code_untouched", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(json({ detail: "Your account is awaiting verification.", code: "verification_required" }, 403)),
+      );
+      const res = await call(GET, ["patients"], { cookie: cookie("ACC") });
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe("verification_required");
+    });
+
+    it("reads_the_status_with_a_get", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(json({ status: "pending", submitted_at: "2026-11-13T10:42:00Z", rejection_reason: "" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call(GET, ["me", "verification"], { cookie: cookie("ACC") });
+      expect(res.status).toBe(200);
+      expect(fetchMock.mock.calls[0][0]).toBe("http://django.test/api/me/verification/");
+    });
   });
 });

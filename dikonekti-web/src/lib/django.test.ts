@@ -42,6 +42,21 @@ describe("djangoRequest", () => {
     expect(fetchMock.mock.calls[0][1].body).toBe("{}");
   });
 
+  it("sends_a_byte_body_unchanged_with_its_multipart_content_type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok());
+    vi.stubGlobal("fetch", fetchMock);
+    const bytes = Uint8Array.from([0, 255, 254, 0, 128, 13, 10]);
+    await djangoRequest("me/verification/", {
+      method: "POST",
+      token: "A",
+      body: bytes,
+      contentType: "multipart/form-data; boundary=----abc",
+    });
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.body).toBe(bytes);
+    expect(new Headers(init.headers).get("content-type")).toBe("multipart/form-data; boundary=----abc");
+  });
+
   it("honours_a_custom_timeout", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok()));
     const spy = vi.spyOn(AbortSignal, "timeout");

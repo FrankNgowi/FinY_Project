@@ -9,8 +9,12 @@ export default function RegisterPage() {
           <BrandHeader />
         </div>
         <h1 className="text-2xl font-bold text-ink">Create account</h1>
-        <p className="mt-1 mb-6 text-sm text-muted">
+        <p className="mt-1 mb-4 text-sm text-muted">
           Doctor accounts only. Patients register in the Dikonekti mobile app.
+        </p>
+        <p className="mb-6 rounded-xl bg-teal-soft px-4 py-3 text-sm text-ink">
+          After you create your account you will upload your confirmation letter or certificate. You can use the app
+          once it is approved.
         </p>
         <RegisterForm />
       </section>
