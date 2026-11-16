@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { ErrorBanner } from "@/components/ErrorBanner";
+import { LogoutButton } from "@/components/LogoutButton";
 import type { UserProfile } from "@/lib/types";
 import { AlertCard } from "./AlertCard";
-import { ErrorBanner } from "./ErrorBanner";
-import { LogoutButton } from "./LogoutButton";
 import { PatientCard } from "./PatientCard";
 import { QuickActions, type QuickAction } from "./QuickActions";
 import { TabTitle } from "./TabTitle";

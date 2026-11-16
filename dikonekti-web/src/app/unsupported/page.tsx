@@ -1,4 +1,4 @@
-import { LogoutButton } from "@/components/dashboard/LogoutButton";
+import { LogoutButton } from "@/components/LogoutButton";
 
 export default function UnsupportedPage() {
   return (

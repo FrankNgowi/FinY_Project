@@ -1,5 +1,14 @@
 // Wire types: mirror the Django serializers exactly (snake_case).
 
+export type VerificationStatus = "not_submitted" | "pending" | "approved" | "rejected";
+
+/** What `GET /api/me/verification/` returns: the doctor's own record, never the file. */
+export type VerificationRecord = {
+  status: VerificationStatus;
+  submitted_at: string | null;
+  rejection_reason: string;
+};
+
 export type UserProfile = {
   username: string;
   role: string;
@@ -12,6 +21,8 @@ export type UserProfile = {
   area: string | null;
   disability_type: string | null;
   specialization: string | null;
+  /** A doctor's certificate status; null for every other role. */
+  verification_status: VerificationStatus | null;
 };
 
 export type EmergencyAlert = {

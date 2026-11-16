@@ -10,8 +10,8 @@ type Options = {
   token?: string;
   /** A value to send as a JSON body. */
   json?: unknown;
-  /** A raw body, sent as-is (used by the proxy). Ignored when `json` is given. */
-  body?: string;
+  /** A raw body, sent as-is (used by the proxy). Bytes keep a multipart upload intact. Ignored when `json` is given. */
+  body?: string | Uint8Array<ArrayBuffer>;
   contentType?: string;
   timeoutMs?: number;
 };

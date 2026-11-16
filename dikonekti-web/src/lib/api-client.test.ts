@@ -112,6 +112,60 @@ describe("apiFetch", () => {
   });
 });
 
+describe("apiFetch with files and verification", () => {
+  it("sends_form_data_as_is_and_never_forces_a_json_content_type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ status: "pending" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new FormData();
+    form.append("document", new File([new Uint8Array([0, 255, 1])], "c.pdf", { type: "application/pdf" }));
+    await apiFetch("me/verification/", { method: "POST", body: form });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/me/verification");
+    expect(init.body).toBe(form); // the browser adds the multipart boundary itself
+    expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain("content-type");
+    expect(init.headers.Accept).toBe("application/json");
+  });
+
+  it("still_sends_plain_objects_as_json", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    await apiFetch("messages/", { method: "POST", body: { a: 1 } });
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(init.body).toBe('{"a":1}');
+  });
+
+  it("sends_a_doctor_who_lost_approval_to_the_verification_screen", async () => {
+    const body = { detail: "Your account is awaiting verification.", code: "verification_required" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body, 403)));
+    await expect(apiFetch("alerts/")).rejects.toMatchObject({ name: "ApiError", status: 403 });
+    expect(replace).toHaveBeenCalledWith("/verification");
+  });
+
+  it.each([
+    [{ detail: "You do not have permission.", code: "permission_denied" }],
+    [{ detail: "Only doctors can perform this action." }],
+    [{ code: ["verification_required"] }],
+    [{ detail: "verification_required" }],
+  ])("does_not_redirect_for_other_403_bodies_%j", async (body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body, 403)));
+    await expect(apiFetch("alerts/")).rejects.toMatchObject({ status: 403 });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does_not_redirect_for_a_403_with_no_json_body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>Forbidden</html>", { status: 403 })));
+    await expect(apiFetch("alerts/")).rejects.toMatchObject({ status: 403 });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does_not_redirect_when_a_different_status_carries_the_code", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ code: "verification_required" }, 400)));
+    await expect(apiFetch("alerts/")).rejects.toMatchObject({ status: 400 });
+    expect(replace).not.toHaveBeenCalled();
+  });
+});
+
 describe("proxyUrl", () => {
   it.each([
     ["alerts/", "/api/alerts"],

@@ -58,6 +58,7 @@ export function proxyUrl(path: string): string {
 
 type Options = {
   method?: string;
+  /** A plain value is sent as JSON; a `FormData` (a file upload) is sent as is. */
   body?: unknown;
   signal?: AbortSignal;
   /** Send the browser to /login on a 401. Turn off for login and logout themselves. Default true. */
@@ -67,14 +68,16 @@ type Options = {
 export async function apiFetch<T = unknown>(path: string, options: Options = {}): Promise<T> {
   const { method = "GET", body, signal, redirectOnUnauthorized = true } = options;
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A FormData body must not get a Content-Type from us: the browser adds it with the multipart boundary.
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
 
   let response: Response;
   try {
     response = await fetch(proxyUrl(path), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
       credentials: "same-origin",
       signal,
     });
@@ -90,11 +93,18 @@ export async function apiFetch<T = unknown>(path: string, options: Options = {})
 
   if (!response.ok) {
     const parsed = await response.json().catch(() => undefined);
+    // A doctor whose approval was withdrawn while the page was open: every doctor call now fails
+    // this way, so send them to the verification screen from this one place.
+    if (response.status === 403 && isVerificationRequired(parsed)) window.location.replace("/verification");
     throw new ApiError(response.status, extractErrorMessage(parsed), parsed);
   }
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+function isVerificationRequired(body: unknown): boolean {
+  return !!body && typeof body === "object" && (body as { code?: unknown }).code === "verification_required";
 }
 
 /** Typed fetcher for SWR: `useSWR(key, swrFetcher<Alert[]>)`. */

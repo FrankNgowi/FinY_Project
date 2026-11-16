@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { djangoRequest, upstreamFailure } from "@/lib/django";
 import { resolveProxyPath } from "@/lib/proxy-path";
+import { BodyTooLargeError, MAX_PROXY_BODY_BYTES, readBodyCapped } from "@/lib/read-body";
 import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
@@ -36,7 +37,17 @@ async function handle(request: NextRequest, { params }: Context) {
   // Only the messages thread takes a query parameter; drop everything else.
   const patient = upstreamPath === "messages/" ? request.nextUrl.searchParams.get("patient") : null;
   const target = `${upstreamPath}${patient ? `?patient=${encodeURIComponent(patient)}` : ""}`;
-  const body = request.method === "GET" ? undefined : await request.text();
+  // Bytes, never text: a text read would corrupt a binary upload. The body is read once, so the
+  // retry after a token refresh below can send exactly the same bytes again.
+  let body: Uint8Array<ArrayBuffer> | undefined;
+  if (request.method !== "GET") {
+    try {
+      body = await readBodyCapped(request, MAX_PROXY_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) return message("The request is too large.", 413);
+      throw error;
+    }
+  }
   const contentType = request.headers.get("content-type") ?? "application/json";
 
   const send = (token: string) => djangoRequest(target, { method: request.method, token, body, contentType });

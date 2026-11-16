@@ -11,6 +11,8 @@ type Route = {
 
 const ROUTES: readonly Route[] = [
   { method: "GET", pattern: ["me"] },
+  { method: "GET", pattern: ["me", "verification"] },
+  { method: "POST", pattern: ["me", "verification"] },
   { method: "GET", pattern: ["alerts"] },
   { method: "PATCH", pattern: ["alerts", ID, "acknowledge"] },
   { method: "GET", pattern: ["patients"] },
