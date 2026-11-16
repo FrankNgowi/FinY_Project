@@ -4,7 +4,7 @@ import useSWR from "swr";
 import { apiFetch, swrFetcher } from "@/lib/api-client";
 import type { Appointment } from "@/lib/types";
 import { AppointmentRow } from "./AppointmentRow";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/Dialog";
 
 const KEY = "appointments/";
 export function ScheduleDialog({ onClose }: { onClose: () => void }) {

@@ -1,6 +1,6 @@
 import { fullName, initialOf } from "@/lib/format";
 import type { UserProfile } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/Dialog";
 import { InfoRow } from "./InfoRow";
 
 export function ProfileDialog({ profile, onClose }: { profile: UserProfile; onClose: () => void }) {

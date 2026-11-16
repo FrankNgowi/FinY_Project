@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CHOOSE_FILE_MESSAGE, MAX_DOCUMENT_BYTES, TOO_LARGE_MESSAGE, documentFormSchema } from "./verification";
+import {
+  CHOOSE_FILE_MESSAGE,
+  MAX_DOCUMENT_BYTES,
+  MAX_REASON_LENGTH,
+  TOO_LARGE_MESSAGE,
+  documentFormSchema,
+  rejectReasonSchema,
+} from "./verification";
 
 const file = (name: string, type: string, size = 1024) => new File([new Uint8Array(size)], name, { type });
 const check = (value: unknown) => documentFormSchema.safeParse({ document: value });
@@ -86,5 +93,45 @@ describe("documentFormSchema", () => {
 
   it("reports_the_wrong_type_before_the_size", () => {
     expect(messageOf(file("a.docx", "application/msword", 6 * 1024 * 1024))).toBe(CHOOSE_FILE_MESSAGE);
+  });
+});
+
+describe("rejectReasonSchema", () => {
+  const reason = (value: unknown) => rejectReasonSchema.safeParse({ reason: value });
+  const message = (value: unknown) => {
+    const result = reason(value);
+    return result.success ? null : result.error.issues[0].message;
+  };
+
+  it("allows_at_most_500_characters", () => {
+    expect(MAX_REASON_LENGTH).toBe(500);
+  });
+
+  it("accepts_a_normal_reason_and_trims_it", () => {
+    const result = reason("  The scan is blurry.  ");
+    expect(result.success && result.data.reason).toBe("The scan is blurry.");
+  });
+
+  it.each([[""], ["   "], ["\n\t "], [undefined], [null]])("asks_for_a_reason_when_given_%j", (value) => {
+    expect(message(value)).toBe("Enter a reason.");
+  });
+
+  it("accepts_exactly_500_characters_and_refuses_501", () => {
+    expect(reason("x".repeat(500)).success).toBe(true);
+    expect(message("x".repeat(501))).toBe("The reason must be 500 characters or fewer.");
+  });
+
+  it("counts_the_trimmed_text_so_padding_cannot_push_a_valid_reason_over", () => {
+    expect(reason(` ${"x".repeat(500)} `).success).toBe(true);
+    expect(message(` ${"x".repeat(501)} `)).toBe("The reason must be 500 characters or fewer.");
+  });
+
+  it.each([["<script>alert(1)</script>"], ["Résumé ✓ 😀"], ["line one\nline two"]])("accepts_%j_as_plain_text", (value) => {
+    expect(reason(value).success).toBe(true);
+  });
+
+  it("refuses_a_non_string_reason", () => {
+    expect(reason(123).success).toBe(false);
+    expect(reason(["a"]).success).toBe(false);
   });
 });

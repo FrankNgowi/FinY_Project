@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { fullName, initialOf } from "@/lib/format";
 import type { UserProfile } from "@/lib/types";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/Dialog";
 import { MessageThread } from "./MessageThread";
 
 type Props = { currentUsername: string; /** undefined while loading or when the list could not be loaded. */ patients: UserProfile[] | undefined; onClose: () => void };

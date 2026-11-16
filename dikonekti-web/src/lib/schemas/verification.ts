@@ -39,3 +39,17 @@ export const documentFormSchema = z.object({
     }),
 });
 export type DocumentFormValues = z.infer<typeof documentFormSchema>;
+
+export const MAX_REASON_LENGTH = 500;
+export const REASON_REQUIRED_MESSAGE = "Enter a reason.";
+export const REASON_TOO_LONG_MESSAGE = `The reason must be ${MAX_REASON_LENGTH} characters or fewer.`;
+
+/** An admin's reason for rejecting a certificate or revoking an approval. The doctor reads it. */
+export const rejectReasonSchema = z.object({
+  reason: z
+    .string({ message: REASON_REQUIRED_MESSAGE })
+    .trim()
+    .min(1, REASON_REQUIRED_MESSAGE)
+    .max(MAX_REASON_LENGTH, REASON_TOO_LONG_MESSAGE),
+});
+export type RejectReasonValues = z.infer<typeof rejectReasonSchema>;

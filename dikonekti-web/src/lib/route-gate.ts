@@ -1,15 +1,17 @@
-export type RouteDecision = "dashboard" | "verification" | "unsupported" | "login";
+export type RouteDecision = "dashboard" | "verification" | "admin" | "unsupported" | "login";
 
 /**
  * The web dashboard is doctor-only, and only for an approved doctor. A doctor in any other state
  * (including a status this app does not know) goes to the verification screen: failing closed
- * means a surprise value never shows the dashboard. Every other role gets the "use the mobile app"
- * page. Django enforces the same rule on every endpoint; this only chooses the screen.
+ * means a surprise value never shows the dashboard. An admin gets the review screen. Every other
+ * role gets the "use the mobile app" page. Django enforces the same rules on every endpoint; this
+ * only chooses the screen.
  */
 export function decideRoute(profile: { role: string; verification_status?: unknown } | null): RouteDecision {
   if (!profile) return "login";
-  const isDoctor = typeof profile.role === "string" && profile.role.toLowerCase() === "doctor";
-  if (!isDoctor) return "unsupported";
+  const role = typeof profile.role === "string" ? profile.role.toLowerCase() : "";
+  if (role === "admin") return "admin";
+  if (role !== "doctor") return "unsupported";
   return profile.verification_status === "approved" ? "dashboard" : "verification";
 }
 

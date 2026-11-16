@@ -25,6 +25,21 @@ export type UserProfile = {
   verification_status: VerificationStatus | null;
 };
 
+/** One row of the admin review queue (`GET /api/admin/verifications/`). Never carries the file itself. */
+export type AdminVerification = {
+  id: number;
+  username: string;
+  display_name: string;
+  specialization: string | null;
+  area: string | null;
+  phone_number: string | null;
+  email: string;
+  status: VerificationStatus;
+  submitted_at: string | null;
+  rejection_reason: string;
+  reviewed_at: string | null;
+};
+
 export type EmergencyAlert = {
   id: number;
   patient_username: string;

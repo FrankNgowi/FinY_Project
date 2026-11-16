@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { djangoRequest, upstreamFailure } from "@/lib/django";
-import { resolveProxyPath } from "@/lib/proxy-path";
+import { allowedQuery, isDocumentPath, resolveProxyPath } from "@/lib/proxy-path";
 import { BodyTooLargeError, MAX_PROXY_BODY_BYTES, readBodyCapped } from "@/lib/read-body";
 import {
   ACCESS_COOKIE,
@@ -34,9 +34,13 @@ async function handle(request: NextRequest, { params }: Context) {
   const refresh = request.cookies.get(REFRESH_COOKIE)?.value;
   if (!access && !refresh) return sessionExpired();
 
-  // Only the messages thread takes a query parameter; drop everything else.
-  const patient = upstreamPath === "messages/" ? request.nextUrl.searchParams.get("patient") : null;
-  const target = `${upstreamPath}${patient ? `?patient=${encodeURIComponent(patient)}` : ""}`;
+  // Only the query parameters listed for this endpoint are forwarded; everything else is dropped.
+  const query = allowedQuery(upstreamPath)
+    .map((name) => [name, request.nextUrl.searchParams.get(name)] as const)
+    .filter((pair): pair is readonly [string, string] => !!pair[1])
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+    .join("&");
+  const target = query ? `${upstreamPath}?${query}` : upstreamPath;
   // Bytes, never text: a text read would corrupt a binary upload. The body is read once, so the
   // retry after a token refresh below can send exactly the same bytes again.
   let body: Uint8Array<ArrayBuffer> | undefined;
@@ -74,13 +78,33 @@ async function handle(request: NextRequest, { params }: Context) {
     return upstreamFailure("api/proxy", error);
   }
 
-  const response = await toResponse(upstream);
+  const response = await toResponse(upstream, isDocumentPath(upstreamPath));
   if (refreshed) applySessionCookies(response, refreshed);
   return response;
 }
 
-async function toResponse(upstream: Response): Promise<NextResponse> {
+// What an admin may be shown from the certificate route, and nothing else: relaying any other type
+// (HTML, SVG, script) from the web app's own address would let a file run as part of the app.
+const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const FILE_HEADERS = ["content-disposition", "x-content-type-options", "content-security-policy", "content-length"];
+
+function fileResponse(upstream: Response): NextResponse | null {
+  const type = (upstream.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!upstream.ok || !FILE_TYPES.has(type) || !upstream.body) return null;
+  const headers = new Headers({ "Content-Type": type, "Cache-Control": "private, no-store" });
+  for (const name of FILE_HEADERS) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new NextResponse(upstream.body, { status: 200, headers });
+}
+
+async function toResponse(upstream: Response, document = false): Promise<NextResponse> {
   if (upstream.status === 204) return new NextResponse(null, { status: 204 });
+  if (document) {
+    const file = fileResponse(upstream);
+    if (file) return file;
+  }
   const isJson = upstream.headers.get("content-type")?.includes("application/json");
   if (!isJson) {
     // Never relay HTML error pages or stack traces to the browser.
