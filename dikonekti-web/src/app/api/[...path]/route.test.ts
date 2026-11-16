@@ -359,6 +359,29 @@ describe("API proxy", () => {
       expect(sha(await bytesOf(res))).toBe(sha(bytes));
     });
 
+    it("sets_nosniff_sandbox_and_a_fixed_file_name_itself_even_when_django_sends_none_of_them", async () => {
+      const bare = new Response(PDF, { status: 200, headers: { "content-type": "application/pdf" } });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(bare));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("content-disposition")).toBe('inline; filename="certificate"');
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    });
+
+    it("never_lets_the_upstream_choose_the_file_name_or_weaken_the_isolation_headers", async () => {
+      const hostile = upstreamFile(PDF, "application/pdf", {
+        "content-disposition": 'attachment; filename="../../evil.html"',
+        "content-security-policy": "default-src *",
+        "x-content-type-options": "",
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(hostile));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("content-disposition")).toBe('inline; filename="certificate"');
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    });
+
     it("sends_the_admins_token_and_asks_django_for_the_right_file", async () => {
       const fetchMock = vi.fn().mockResolvedValue(upstreamFile(PDF, "application/pdf"));
       vi.stubGlobal("fetch", fetchMock);

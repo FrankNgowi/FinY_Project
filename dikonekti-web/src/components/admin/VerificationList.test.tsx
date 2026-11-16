@@ -35,6 +35,61 @@ const tab = (name: RegExp) => screen.getByRole("tab", { name });
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("VerificationList tabs keyboard use", () => {
+  async function ready() {
+    mockApi(rows);
+    renderList();
+    await screen.findByText("Dr. Amina");
+  }
+
+  it("puts_only_the_selected_tab_in_the_tab_order", async () => {
+    await ready();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1"]);
+    await userEvent.click(tab(/^approved/i));
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1", "-1"]);
+  });
+
+  it("moves_and_selects_with_the_left_and_right_arrows_and_wraps_around", async () => {
+    await ready();
+    tab(/^pending/i).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(tab(/^approved/i)).toHaveFocus();
+    expect(tab(/^approved/i)).toHaveAttribute("aria-selected", "true");
+    expect(names()).toEqual(["Dr. Sara"]);
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(tab(/^all/i)).toHaveFocus();
+    expect(tab(/^all/i)).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(tab(/^pending/i)).toHaveFocus();
+  });
+
+  it("jumps_to_the_first_and_last_tab_with_home_and_end", async () => {
+    await ready();
+    tab(/^pending/i).focus();
+    await userEvent.keyboard("{End}");
+    expect(tab(/^all/i)).toHaveFocus();
+    expect(tab(/^all/i)).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Home}");
+    expect(tab(/^pending/i)).toHaveFocus();
+  });
+
+  it("leaves_the_tab_list_with_the_tab_key_instead_of_walking_through_every_tab", async () => {
+    await ready();
+    tab(/^pending/i).focus();
+    await userEvent.tab();
+    expect(screen.getAllByRole("tab").some((t) => t === document.activeElement)).toBe(false);
+  });
+
+  it("ignores_other_keys", async () => {
+    await ready();
+    tab(/^pending/i).focus();
+    await userEvent.keyboard("a{ArrowDown}{ArrowUp}");
+    expect(tab(/^pending/i)).toHaveFocus();
+    expect(tab(/^pending/i)).toHaveAttribute("aria-selected", "true");
+  });
+});
+
 describe("VerificationList", () => {
   it("shows_a_loading_state_first", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise(() => {})));

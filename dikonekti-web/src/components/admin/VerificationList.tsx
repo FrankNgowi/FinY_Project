@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { CONFLICT_MESSAGE, DecisionConflictError, useDecisions, useVerifications } from "./hooks/useVerifications";
 import { TABS, tabCounts, tabRecords, type TabKey } from "./tabs";
@@ -17,8 +17,25 @@ export function VerificationList() {
   const { data, error, mutate } = useVerifications();
   const decisions = useDecisions();
   const [tab, setTab] = useState<TabKey>("pending");
+  const tabRefs = useRef<Partial<Record<TabKey, HTMLButtonElement | null>>>({});
   // The refresh after a conflict removes the row that raised it, so the message lives here instead.
   const [notice, setNotice] = useState<string | null>(null);
+
+  /** The WAI-ARIA tabs pattern: arrows, Home and End move between tabs; only the selected tab is a Tab stop. */
+  function onTabKeyDown(event: KeyboardEvent) {
+    const index = TABS.findIndex(({ key }) => key === tab);
+    const next =
+      event.key === "ArrowRight" ? (index + 1) % TABS.length
+      : event.key === "ArrowLeft" ? (index - 1 + TABS.length) % TABS.length
+      : event.key === "Home" ? 0
+      : event.key === "End" ? TABS.length - 1
+      : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    const key = TABS[next].key;
+    setTab(key);
+    tabRefs.current[key]?.focus();
+  }
 
   function watched<A extends unknown[]>(decide: (...args: A) => Promise<unknown>) {
     return async (...args: A) => {
@@ -62,14 +79,18 @@ export function VerificationList() {
 
       {data && counts && (
         <>
-          <div role="tablist" aria-label="Review status" className="flex flex-wrap gap-2">
+          <div role="tablist" aria-label="Review status" onKeyDown={onTabKeyDown} className="flex flex-wrap gap-2">
             {TABS.map(({ key, label }) => {
               const selected = key === tab;
               return (
                 <button
                   key={key}
+                  ref={(element) => {
+                    tabRefs.current[key] = element;
+                  }}
                   type="button"
                   role="tab"
+                  tabIndex={selected ? 0 : -1}
                   id={`tab-${key}`}
                   aria-selected={selected}
                   aria-controls="review-panel"

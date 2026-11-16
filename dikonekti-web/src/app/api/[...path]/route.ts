@@ -86,16 +86,24 @@ async function handle(request: NextRequest, { params }: Context) {
 // What an admin may be shown from the certificate route, and nothing else: relaying any other type
 // (HTML, SVG, script) from the web app's own address would let a file run as part of the app.
 const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
-const FILE_HEADERS = ["content-disposition", "x-content-type-options", "content-security-policy", "content-length"];
 
+/**
+ * The proxy sets the isolation headers itself instead of trusting the upstream reply to send them:
+ * a certificate is user-uploaded content served from the web app's own address. The file name is
+ * fixed too, so nothing the doctor chose can reach a header. Only the length is taken from Django.
+ */
 function fileResponse(upstream: Response): NextResponse | null {
   const type = (upstream.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   if (!upstream.ok || !FILE_TYPES.has(type) || !upstream.body) return null;
-  const headers = new Headers({ "Content-Type": type, "Cache-Control": "private, no-store" });
-  for (const name of FILE_HEADERS) {
-    const value = upstream.headers.get(name);
-    if (value) headers.set(name, value);
-  }
+  const headers = new Headers({
+    "Content-Type": type,
+    "Content-Disposition": 'inline; filename="certificate"',
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": "private, no-store",
+  });
+  const length = upstream.headers.get("content-length");
+  if (length && /^\d+$/.test(length)) headers.set("Content-Length", length);
   return new NextResponse(upstream.body, { status: 200, headers });
 }
 

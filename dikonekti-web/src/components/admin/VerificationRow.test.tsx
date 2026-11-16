@@ -72,6 +72,13 @@ describe("VerificationRow details", () => {
     },
   );
 
+  it.each([["suspended"], ["under_appeal"]])("shows_an_unknown_status_%s_as_itself_never_as_not_submitted", (status) => {
+    renderRow({ status: status as never }, { showStatus: true });
+    const badge = document.querySelector("[data-status]");
+    expect(badge?.textContent).toBe(status.replace(/_/g, " "));
+    expect(screen.queryByText("Not submitted")).toBeNull();
+  });
+
   it("hides_the_badge_inside_the_pending_tab", () => {
     renderRow({ status: "pending" }, { showStatus: false });
     expect(document.querySelector("[data-status]")).toBeNull();

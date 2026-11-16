@@ -32,7 +32,8 @@ export function VerificationRow({ record, showStatus, onApprove, onReject }: Pro
 
   const name = record.display_name;
   const call = telHref(record.phone_number);
-  const badge = BADGES[record.status] ?? BADGES.not_submitted;
+  // A status this app does not know is shown as itself, never as another state.
+  const badge = BADGES[record.status] ?? { label: String(record.status).replace(/_/g, " "), className: "bg-page text-muted" };
   const hasDocument = record.status !== "not_submitted";
 
   async function approve() {
