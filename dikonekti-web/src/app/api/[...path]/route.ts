@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { djangoRequest, upstreamFailure } from "@/lib/django";
-import { resolveProxyPath } from "@/lib/proxy-path";
+import { allowedQuery, isDocumentPath, resolveProxyPath } from "@/lib/proxy-path";
 import { BodyTooLargeError, MAX_PROXY_BODY_BYTES, readBodyCapped } from "@/lib/read-body";
 import {
   ACCESS_COOKIE,
@@ -34,9 +34,13 @@ async function handle(request: NextRequest, { params }: Context) {
   const refresh = request.cookies.get(REFRESH_COOKIE)?.value;
   if (!access && !refresh) return sessionExpired();
 
-  // Only the messages thread takes a query parameter; drop everything else.
-  const patient = upstreamPath === "messages/" ? request.nextUrl.searchParams.get("patient") : null;
-  const target = `${upstreamPath}${patient ? `?patient=${encodeURIComponent(patient)}` : ""}`;
+  // Only the query parameters listed for this endpoint are forwarded; everything else is dropped.
+  const query = allowedQuery(upstreamPath)
+    .map((name) => [name, request.nextUrl.searchParams.get(name)] as const)
+    .filter((pair): pair is readonly [string, string] => !!pair[1])
+    .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+    .join("&");
+  const target = query ? `${upstreamPath}?${query}` : upstreamPath;
   // Bytes, never text: a text read would corrupt a binary upload. The body is read once, so the
   // retry after a token refresh below can send exactly the same bytes again.
   let body: Uint8Array<ArrayBuffer> | undefined;
@@ -74,13 +78,44 @@ async function handle(request: NextRequest, { params }: Context) {
     return upstreamFailure("api/proxy", error);
   }
 
-  const response = await toResponse(upstream);
+  const response = await toResponse(upstream, isDocumentPath(upstreamPath));
   if (refreshed) applySessionCookies(response, refreshed);
   return response;
 }
 
-async function toResponse(upstream: Response): Promise<NextResponse> {
+// What an admin may be shown from the certificate route, and nothing else: relaying any other type
+// (HTML, SVG, script) from the web app's own address would let a file run as part of the app.
+const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+
+/**
+ * The proxy sets the isolation headers itself instead of trusting the upstream reply to send them:
+ * a certificate is user-uploaded content served from the web app's own address. The file name is
+ * fixed too, so nothing the doctor chose can reach a header. Only the length is taken from Django,
+ * and only for an uncompressed reply: fetch decodes a compressed body but leaves the compressed
+ * length in the headers, and forwarding it would make the browser see a length mismatch.
+ */
+function fileResponse(upstream: Response): NextResponse | null {
+  const type = (upstream.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!upstream.ok || !FILE_TYPES.has(type) || !upstream.body) return null;
+  const headers = new Headers({
+    "Content-Type": type,
+    "Content-Disposition": 'inline; filename="certificate"',
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox",
+    "Cache-Control": "private, no-store",
+  });
+  const encoding = (upstream.headers.get("content-encoding") ?? "identity").trim().toLowerCase();
+  const length = upstream.headers.get("content-length");
+  if (encoding === "identity" && length && /^\d+$/.test(length)) headers.set("Content-Length", length);
+  return new NextResponse(upstream.body, { status: 200, headers });
+}
+
+async function toResponse(upstream: Response, document = false): Promise<NextResponse> {
   if (upstream.status === 204) return new NextResponse(null, { status: 204 });
+  if (document) {
+    const file = fileResponse(upstream);
+    if (file) return file;
+  }
   const isJson = upstream.headers.get("content-type")?.includes("application/json");
   if (!isJson) {
     // Never relay HTML error pages or stack traces to the browser.

@@ -1,6 +1,6 @@
 # dikonekti-web
 
-Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tailwind). It talks to the existing Django REST API in `Dikonekt_Backend/`. Only approved doctors can use the dashboard; a doctor who is not approved yet uploads a confirmation letter or certificate on `/verification`. Other roles see a "use the mobile app" page.
+Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tailwind). It talks to the existing Django REST API in `Dikonekt_Backend/`. Only approved doctors can use the dashboard; a doctor who is not approved yet uploads a confirmation letter or certificate on `/verification`. Admins review those documents on `/admin/verifications`. Other roles see a "use the mobile app" page.
 
 ## How it works
 
@@ -11,6 +11,8 @@ Doctor dashboard for Dikonekti, built with Next.js (App Router, TypeScript, Tail
 - `src/lib/django.ts` is the only server-side code that calls Django. `src/lib/api-client.ts` is the only browser-side caller of the web app's own `/api/*` routes.
 - Doctor verification: `src/lib/route-gate.ts` sends a doctor whose `verification_status` (from `GET /api/me/`) is anything but `approved` to `/verification`, and an approved doctor who opens `/verification` back to `/`. The panel polls `me/verification` every 30 seconds only while the document is pending. If any request answers `403` with `verification_required` (approval withdrawn while the dashboard was open), `apiFetch` sends the doctor to `/verification`.
 - Uploads: the browser sends `FormData` (no forced content type). The proxy reads request bodies as bytes with `src/lib/read-body.ts` and refuses more than 6 MB with `413`, before Django is called; Django enforces the real 5 MB limit and checks the file type. Next's own body limit does not apply to `/api` routes, so this cap is the only one.
+- Admin review: `decideRoute` sends role `admin` to `/admin/verifications`, a queue with Pending, Approved, Rejected and All tabs fed by one `GET /api/admin/verifications/?status=all` request (refreshed every 30 seconds). **View document** is a plain same-origin link, so the `httpOnly` session cookie authorises it and no token is ever in a URL. The proxy is the one place that relays a file: only the document route, only an ok reply, only `application/pdf`, `image/jpeg` or `image/png`, with `Cache-Control: private, no-store`. Admin accounts are created on the server with `python manage.py create_admin <username>`.
+- The proxy forwards only the query parameters listed per endpoint in `src/lib/proxy-path.ts` (`patient` for messages, `status` for the admin list).
 - Deploy the Django backend with doctor verification before this web app: a doctor profile without `verification_status` is treated as not approved.
 - `src/lib/schemas/auth.ts` holds the login and registration rules; the forms (React Hook Form) and the API routes both use it.
 

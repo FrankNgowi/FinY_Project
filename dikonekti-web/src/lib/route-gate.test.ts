@@ -30,8 +30,21 @@ describe("decideRoute", () => {
     expect(decideRoute({ role: "disabled", verification_status: "approved" })).toBe("unsupported");
   });
 
-  it.each([[""], ["admin"], ["doctor "], ["doctors"], ["undefined"]])("sends_role_%j_to_unsupported_even_if_approved", (role) => {
+  it.each([[""], ["administrator"], ["doctor "], ["doctors"], ["undefined"]])("sends_role_%j_to_unsupported_even_if_approved", (role) => {
     expect(decideRoute({ role, verification_status: "approved" })).toBe("unsupported");
+  });
+
+  it.each([["admin"], ["Admin"], ["ADMIN"]])("sends_role_%s_to_the_admin_screen_whatever_its_status", (role) => {
+    expect(decideRoute({ role, verification_status: null })).toBe("admin");
+    expect(decideRoute({ role })).toBe("admin");
+    expect(decideRoute({ role, verification_status: "approved" })).toBe("admin");
+    expect(decideRoute({ role, verification_status: "pending" })).toBe("admin");
+  });
+
+  it("does_not_treat_a_look_alike_role_as_admin", () => {
+    for (const role of ["admin ", " admin", "admins", "superadmin", "admin\n"]) {
+      expect(decideRoute({ role, verification_status: null })).toBe("unsupported");
+    }
   });
 
   it("sends_a_profile_without_a_role_to_unsupported", () => {

@@ -20,6 +20,10 @@ const ROUTES: readonly Route[] = [
   { method: "PATCH", pattern: ["appointments", ID, "status"] },
   { method: "GET", pattern: ["messages"] },
   { method: "POST", pattern: ["messages"] },
+  { method: "GET", pattern: ["admin", "verifications"] },
+  { method: "GET", pattern: ["admin", "verifications", ID, "document"] },
+  { method: "POST", pattern: ["admin", "verifications", ID, "approve"] },
+  { method: "POST", pattern: ["admin", "verifications", ID, "reject"] },
 ];
 
 function matches(pattern: Route["pattern"], segments: readonly string[]): boolean {
@@ -37,4 +41,20 @@ export function resolveProxyPath(segments: readonly string[], method: string): s
   const verb = method.toUpperCase();
   const route = ROUTES.find((r) => r.method === verb && matches(r.pattern, segments));
   return route ? `${segments.join("/")}/` : null;
+}
+
+// The only query parameters the proxy forwards, per Django path. Everything else is dropped, so a
+// client cannot add parameters to an endpoint that does not take them.
+const QUERY: Readonly<Record<string, readonly string[]>> = {
+  "messages/": ["patient"],
+  "admin/verifications/": ["status"],
+};
+
+export function allowedQuery(upstreamPath: string): readonly string[] {
+  return QUERY[upstreamPath] ?? [];
+}
+
+/** The one route whose reply is a file, not JSON: an admin viewing a doctor's certificate. */
+export function isDocumentPath(upstreamPath: string): boolean {
+  return /^admin\/verifications\/[0-9]{1,9}\/document\/$/.test(upstreamPath);
 }

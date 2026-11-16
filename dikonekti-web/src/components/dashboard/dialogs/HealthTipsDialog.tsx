@@ -1,5 +1,5 @@
 import { DOCTOR_HEALTH_TIPS } from "@/lib/health-tips";
-import { Dialog } from "./Dialog";
+import { Dialog } from "@/components/Dialog";
 
 export function HealthTipsDialog({ onClose }: { onClose: () => void }) {
   return (

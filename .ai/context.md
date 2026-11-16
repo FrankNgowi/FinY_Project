@@ -2,6 +2,7 @@
 
 ## Module map
 
+
 | Directory | What it is |
 |---|---|
 | `dikonekti/` | Flutter app (mobile). Contains a Flutter `web/` target that is not used for the web dashboard. |
@@ -38,6 +39,12 @@ Build order: DIK-002 (backend hardening) then DIK-003 (doctor verification backe
 - `decideRoute` (`dikonekti-web/src/lib/route-gate.ts`) returns `verification` for a doctor whose `verification_status` is not `approved` (unknown or missing counts as not approved). The home page and `/verification` redirect each other's visitors.
 - The proxy (`src/app/api/[...path]/route.ts`) reads bodies as bytes with a 6 MB cap (`src/lib/read-body.ts`); `apiFetch` sends `FormData` unchanged and redirects on `403 verification_required`.
 - `LogoutButton`, `ErrorBanner` and `ProfileLoadError` live in `src/components/` because several features use them.
+
+## Web: admin review (DIK-006)
+
+- `decideRoute` returns `admin` for role `admin`; the home page sends admins to `/admin/verifications` and `/verification` sends them on to `/`.
+- The proxy relays a file only for `admin/verifications/<id>/document/` (ok reply, PDF/JPEG/PNG only, `Cache-Control: private, no-store`); per-endpoint allowed query parameters live in `proxy-path.ts` (`allowedQuery`).
+- `Dialog` moved to `src/components/` (also used by the reject dialog). Tab filtering is `src/components/admin/tabs.ts`.
 
 ## Running the backend
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveProxyPath } from "./proxy-path";
+import { allowedQuery, isDocumentPath, resolveProxyPath } from "./proxy-path";
 
 describe("resolveProxyPath", () => {
   it.each([
@@ -13,6 +13,10 @@ describe("resolveProxyPath", () => {
     [["messages"], "POST", "messages/"],
     [["me", "verification"], "GET", "me/verification/"],
     [["me", "verification"], "POST", "me/verification/"],
+    [["admin", "verifications"], "GET", "admin/verifications/"],
+    [["admin", "verifications", "7", "document"], "GET", "admin/verifications/7/document/"],
+    [["admin", "verifications", "7", "approve"], "POST", "admin/verifications/7/approve/"],
+    [["admin", "verifications", "7", "reject"], "POST", "admin/verifications/7/reject/"],
   ])("allows %j %s -> %s", (segments, method, expected) => {
     expect(resolveProxyPath(segments, method)).toBe(expected);
   });
@@ -78,8 +82,62 @@ describe("resolveProxyPath", () => {
     expect(resolveProxyPath(["verification"], "GET")).toBeNull();
   });
 
-  it("keeps_every_admin_and_doctor_list_endpoint_closed", () => {
-    expect(resolveProxyPath(["admin", "verifications"], "GET")).toBeNull();
+  it("keeps_every_other_admin_and_doctor_list_endpoint_closed", () => {
+    expect(resolveProxyPath(["admin"], "GET")).toBeNull();
+    expect(resolveProxyPath(["admin", "verifications", "7"], "GET")).toBeNull();
+    expect(resolveProxyPath(["admin", "users"], "GET")).toBeNull();
     expect(resolveProxyPath(["doctors"], "GET")).toBeNull();
   });
+
+  it("allows_only_the_exact_method_on_each_admin_endpoint", () => {
+    const cases: [string[], string[]][] = [
+      [["admin", "verifications"], ["POST", "PUT", "PATCH", "DELETE"]],
+      [["admin", "verifications", "7", "document"], ["POST", "PUT", "PATCH", "DELETE"]],
+      [["admin", "verifications", "7", "approve"], ["GET", "PUT", "PATCH", "DELETE"]],
+      [["admin", "verifications", "7", "reject"], ["GET", "PUT", "PATCH", "DELETE"]],
+    ];
+    for (const [segments, methods] of cases) {
+      for (const method of methods) expect(resolveProxyPath(segments, method)).toBeNull();
+    }
+  });
+
+  it("rejects_bad_ids_and_extra_segments_on_the_admin_endpoints", () => {
+    for (const id of ["abc", "1.5", "-1", "", " 1", "1 ", "..", "%2e%2e", "99999999999999999999"]) {
+      for (const [action, method] of [["document", "GET"], ["approve", "POST"], ["reject", "POST"]]) {
+        expect(resolveProxyPath(["admin", "verifications", id, action], method)).toBeNull();
+      }
+    }
+    expect(resolveProxyPath(["admin", "verifications", "7", "document", "extra"], "GET")).toBeNull();
+    expect(resolveProxyPath(["admin", "verifications", "7", "delete"], "POST")).toBeNull();
+    expect(resolveProxyPath(["Admin", "verifications"], "GET")).toBeNull();
+    expect(resolveProxyPath(["admin", "Verifications"], "GET")).toBeNull();
+  });
+});
+
+describe("allowedQuery", () => {
+  it("lets_only_the_messages_thread_carry_patient_and_only_the_admin_list_carry_status", () => {
+    expect(allowedQuery("messages/")).toEqual(["patient"]);
+    expect(allowedQuery("admin/verifications/")).toEqual(["status"]);
+  });
+
+  it.each([["alerts/"], ["patients/"], ["me/"], ["me/verification/"], ["admin/verifications/7/document/"], ["admin/verifications/7/approve/"], [""], ["messages"]])(
+    "allows_no_query_for_%j",
+    (path) => {
+      expect(allowedQuery(path)).toEqual([]);
+    },
+  );
+});
+
+describe("isDocumentPath", () => {
+  it("is_true_only_for_a_document_download", () => {
+    expect(isDocumentPath("admin/verifications/7/document/")).toBe(true);
+    expect(isDocumentPath("admin/verifications/123456789/document/")).toBe(true);
+  });
+
+  it.each([["admin/verifications/"], ["admin/verifications/7/approve/"], ["alerts/"], ["admin/verifications/x/document/"], ["admin/verifications/7/document"], ["admin/verifications/7/document/extra/"], ["me/verification/"], [""]])(
+    "is_false_for_%j",
+    (path) => {
+      expect(isDocumentPath(path)).toBe(false);
+    },
+  );
 });

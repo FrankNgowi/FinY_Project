@@ -305,4 +305,218 @@ describe("API proxy", () => {
       expect(fetchMock.mock.calls[0][0]).toBe("http://django.test/api/me/verification/");
     });
   });
+
+  describe("admin review", () => {
+    const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+    // Every byte value, including 0x00 and 0xFF, so a text conversion anywhere would corrupt it.
+    const file = (head: number[], size = 200_000) =>
+      Uint8Array.from({ length: size }, (_, i) => (i < head.length ? head[i] : (i * 31 + 7) & 255));
+    const PDF = file([0x25, 0x50, 0x44, 0x46, 0x2d]);
+    const JPG = file([0xff, 0xd8, 0xff, 0xe0]);
+    const PNG = file([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const upstreamFile = (bytes: Uint8Array<ArrayBuffer>, type: string, extra: Record<string, string> = {}) =>
+      new Response(bytes, {
+        status: 200,
+        headers: {
+          "content-type": type,
+          "content-disposition": 'inline; filename="certificate"',
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "sandbox",
+          "content-length": String(bytes.byteLength),
+          ...extra,
+        },
+      });
+    const DOC = ["admin", "verifications", "7", "document"];
+    const bytesOf = async (res: Response) => new Uint8Array(await res.arrayBuffer());
+
+    it("forwards_only_the_status_query_to_the_admin_list", async () => {
+      const fetchMock = vi.fn().mockImplementation(async () => json([]));
+      vi.stubGlobal("fetch", fetchMock);
+      await call(GET, ["admin", "verifications"], { cookie: cookie("ACC"), query: "?status=all&evil=1&patient=p1" });
+      expect(fetchMock.mock.calls[0][0]).toBe("http://django.test/api/admin/verifications/?status=all");
+      await call(GET, ["admin", "verifications"], { cookie: cookie("ACC"), query: "?evil=1" });
+      expect(fetchMock.mock.calls[1][0]).toBe("http://django.test/api/admin/verifications/");
+      await call(GET, ["alerts"], { cookie: cookie("ACC"), query: "?status=all" });
+      expect(fetchMock.mock.calls[2][0]).toBe("http://django.test/api/alerts/");
+      await call(GET, ["messages"], { cookie: cookie("ACC"), query: "?status=all&patient=p%201" });
+      expect(fetchMock.mock.calls[3][0]).toBe("http://django.test/api/messages/?patient=p%201");
+    });
+
+    it.each([
+      ["a PDF", PDF, "application/pdf"],
+      ["a JPEG", JPG, "image/jpeg"],
+      ["a PNG", PNG, "image/png"],
+    ])("passes_%s_through_byte_for_byte_with_the_safe_headers", async (_label, bytes, type) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(upstreamFile(bytes, type)));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe(type);
+      expect(res.headers.get("content-disposition")).toBe('inline; filename="certificate"');
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("content-length")).toBe(String(bytes.byteLength));
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+      expect(sha(await bytesOf(res))).toBe(sha(bytes));
+    });
+
+    it("sets_nosniff_sandbox_and_a_fixed_file_name_itself_even_when_django_sends_none_of_them", async () => {
+      const bare = new Response(PDF, { status: 200, headers: { "content-type": "application/pdf" } });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(bare));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("content-disposition")).toBe('inline; filename="certificate"');
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    });
+
+    it("never_lets_the_upstream_choose_the_file_name_or_weaken_the_isolation_headers", async () => {
+      const hostile = upstreamFile(PDF, "application/pdf", {
+        "content-disposition": 'attachment; filename="../../evil.html"',
+        "content-security-policy": "default-src *",
+        "x-content-type-options": "",
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(hostile));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("content-disposition")).toBe('inline; filename="certificate"');
+      expect(res.headers.get("content-security-policy")).toBe("sandbox");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    });
+
+    it.each([["gzip"], ["br"], ["deflate"], ["GZIP"]])(
+      "does_not_forward_a_content_length_that_describes_a_%s_compressed_reply",
+      async (encoding) => {
+        // fetch decodes the body but leaves the compressed length in the headers; forwarding it
+        // would make the browser report a length mismatch or show a truncated file.
+        const compressed = upstreamFile(PDF, "application/pdf", { "content-encoding": encoding, "content-length": "123" });
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(compressed));
+        const res = await call(GET, DOC, { cookie: cookie("ACC") });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-length")).toBeNull();
+        expect(res.headers.get("content-encoding")).toBeNull();
+        expect(sha(await bytesOf(res))).toBe(sha(PDF));
+      },
+    );
+
+    it("still_forwards_the_length_when_the_reply_says_identity_or_has_no_encoding", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => upstreamFile(PDF, "application/pdf", { "content-encoding": "identity" })));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("content-length")).toBe(String(PDF.byteLength));
+    });
+
+    it("does_not_forward_a_malformed_content_length", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => upstreamFile(PDF, "application/pdf", { "content-length": "12abc" })));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-length")).not.toBe("12abc");
+    });
+
+    it("sends_the_admins_token_and_asks_django_for_the_right_file", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(upstreamFile(PDF, "application/pdf"));
+      vi.stubGlobal("fetch", fetchMock);
+      await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(fetchMock.mock.calls[0][0]).toBe("http://django.test/api/admin/verifications/7/document/");
+      expect(new Headers(fetchMock.mock.calls[0][1].headers).get("authorization")).toBe("Bearer ACC");
+    });
+
+    it("accepts_a_content_type_with_parameters_and_in_any_case", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(upstreamFile(PDF, "Application/PDF; charset=binary")));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.status).toBe(200);
+      expect(sha(await bytesOf(res))).toBe(sha(PDF));
+    });
+
+    it.each([["text/html"], ["image/svg+xml"], ["application/javascript"], ["application/octet-stream"], ["text/plain"], [""]])(
+      "refuses_to_relay_a_%j_reply_from_the_document_route",
+      async (type) => {
+        const body = new TextEncoder().encode("<script>alert(document.cookie)</script>");
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(upstreamFile(body, type)));
+        const res = await call(GET, DOC, { cookie: cookie("ACC") });
+        expect(res.status).toBe(502);
+        const text = await res.text();
+        expect(text).not.toContain("script");
+        expect(res.headers.get("content-type")).toMatch(/application\/json/);
+      },
+    );
+
+    it("still_returns_djangos_json_errors_from_the_document_route", async () => {
+      for (const status of [403, 404]) {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: `no ${status}` }, status)));
+        const res = await call(GET, DOC, { cookie: cookie("ACC") });
+        expect(res.status).toBe(status);
+        expect(await res.json()).toEqual({ detail: `no ${status}` });
+      }
+    });
+
+    it("hides_a_django_error_page_on_the_document_route", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>Traceback</html>", { status: 500, headers: { "content-type": "text/html" } })));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.status).toBe(500);
+      expect(await res.text()).not.toContain("Traceback");
+    });
+
+    it("does_not_pass_a_file_through_any_other_route", async () => {
+      for (const path of [["alerts"], ["me", "verification"], ["admin", "verifications"]]) {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(upstreamFile(PDF, "application/pdf")));
+        const res = await call(GET, path, { cookie: cookie("ACC") });
+        expect(res.status).toBe(502);
+        expect(res.headers.get("content-type")).toMatch(/application\/json/);
+      }
+    });
+
+    it("refreshes_the_token_after_a_401_then_streams_the_second_reply", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json({ detail: "expired" }, 401))
+        .mockResolvedValueOnce(json({ access: "NEW", refresh: "NEWREF" }))
+        .mockResolvedValueOnce(upstreamFile(PNG, "image/png"));
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call(GET, DOC, { cookie: cookie("OLD", "REF") });
+      expect(res.status).toBe(200);
+      expect(sha(await bytesOf(res))).toBe(sha(PNG));
+      expect(new Headers(fetchMock.mock.calls[2][1].headers).get("authorization")).toBe("Bearer NEW");
+      expect(res.headers.getSetCookie().join("\n")).toMatch(/dik_access=NEW/);
+    });
+
+    it("returns_401_and_never_calls_django_without_a_session", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call(GET, DOC);
+      expect(res.status).toBe(401);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("returns_404_without_calling_django_for_a_bad_document_id", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const res = await call(GET, ["admin", "verifications", "abc", "document"], { cookie: cookie("ACC") });
+      expect(res.status).toBe(404);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("sends_approve_with_no_body_and_reject_with_its_reason", async () => {
+      const fetchMock = vi.fn().mockImplementation(async () => json({ id: 7, status: "approved" }));
+      vi.stubGlobal("fetch", fetchMock);
+      const approve = await call(POST, ["admin", "verifications", "7", "approve"], { method: "POST", cookie: cookie("ACC"), body: "" });
+      expect(approve.status).toBe(200);
+      expect(fetchMock.mock.calls[0][0]).toBe("http://django.test/api/admin/verifications/7/approve/");
+      const reason = JSON.stringify({ reason: "Name does not match." });
+      await call(POST, ["admin", "verifications", "7", "reject"], {
+        method: "POST",
+        cookie: cookie("ACC"),
+        body: reason,
+        headers: { "content-type": "application/json" },
+      });
+      expect(fetchMock.mock.calls[1][0]).toBe("http://django.test/api/admin/verifications/7/reject/");
+      expect(new TextDecoder().decode(fetchMock.mock.calls[1][1].body)).toBe(reason);
+    });
+
+    it("relays_a_conflict_and_a_forbidden_decision_with_their_status", async () => {
+      for (const status of [403, 409]) {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ detail: `d${status}` }, status)));
+        const res = await call(POST, ["admin", "verifications", "7", "approve"], { method: "POST", cookie: cookie("ACC"), body: "" });
+        expect(res.status).toBe(status);
+        expect(await res.json()).toEqual({ detail: `d${status}` });
+      }
+    });
+  });
 });

@@ -18,6 +18,7 @@ export default async function HomePage(props: PageProps<"/">) {
   const decision = decideRoute(result.profile);
   if (decision === "unsupported") redirect("/unsupported");
   if (decision === "verification") redirect("/verification");
+  if (decision === "admin") redirect("/admin/verifications");
   // Drop the one-time flag from the URL after a successful refresh.
   if (refreshed !== undefined) redirect("/");
   return <Dashboard profile={result.profile} />;

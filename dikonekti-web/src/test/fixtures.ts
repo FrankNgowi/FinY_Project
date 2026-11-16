@@ -1,4 +1,4 @@
-import type { Appointment, ChatMessage, EmergencyAlert, UserProfile } from "@/lib/types";
+import type { AdminVerification, Appointment, ChatMessage, EmergencyAlert, UserProfile } from "@/lib/types";
 
 export function makeProfile(overrides: Partial<UserProfile> = {}): UserProfile {
   return {
@@ -33,6 +33,40 @@ export function makeDoctor(overrides: Partial<UserProfile> = {}): UserProfile {
     verification_status: "approved",
     ...overrides,
   });
+}
+
+export function makeAdmin(overrides: Partial<UserProfile> = {}): UserProfile {
+  return makeProfile({
+    username: "boss",
+    role: "admin",
+    display_name: "Boss",
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone_number: null,
+    area: null,
+    disability_type: null,
+    specialization: null,
+    verification_status: null,
+    ...overrides,
+  });
+}
+
+export function makeAdminVerification(overrides: Partial<AdminVerification> = {}): AdminVerification {
+  return {
+    id: 1,
+    username: "jane",
+    display_name: "Dr. Jane Doe",
+    specialization: "Vision",
+    area: "Stone Town",
+    phone_number: "+254700000001",
+    email: "jane@example.test",
+    status: "pending",
+    submitted_at: "2026-11-13T10:42:00Z",
+    rejection_reason: "",
+    reviewed_at: null,
+    ...overrides,
+  };
 }
 
 export function makeAlert(overrides: Partial<EmergencyAlert> = {}): EmergencyAlert {

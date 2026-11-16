@@ -110,10 +110,15 @@ None.
 | `dikonekti-web/src/lib/route-gate.ts`, `route-gate.test.ts` | Modified (`admin` decision) |
 | `dikonekti-web/src/app/page.tsx` | Modified (redirect admins) |
 | `dikonekti-web/src/app/admin/verifications/page.tsx` | New |
-| `dikonekti-web/src/components/admin/VerificationList.tsx`, `VerificationRow.tsx`, `RejectDialog.tsx` | New |
+| `dikonekti-web/src/components/admin/VerificationList.tsx`, `VerificationRow.tsx`, `RejectDialog.tsx`, `tabs.ts` | New |
 | `dikonekti-web/src/components/admin/hooks/useVerifications.ts` | New |
+| `dikonekti-web/src/components/Dialog.tsx`, `Dialog.test.tsx` | Moved from `components/dashboard/dialogs/` (second feature uses it) |
+| `dikonekti-web/src/components/dashboard/dialogs/*Dialog.tsx` | Modified (import path only) |
 | `dikonekti-web/src/lib/schemas/verification.ts` | Modified (reject reason rule) |
 | `dikonekti-web/src/lib/types.ts` | Modified (admin record type) |
-| `dikonekti-web/src/lib/proxy-path.ts`, `proxy-path.test.ts` | Modified (four admin rows) |
-| `dikonekti-web/src/app/api/[...path]/route.ts`, `route.test.ts` | Modified (binary response passthrough for the document path) |
-| `dikonekti-web/README.md` | Modified |
+| `dikonekti-web/src/lib/proxy-path.ts`, `proxy-path.test.ts` | Modified (four admin rows, per-endpoint allowed query, document path helper) |
+| `dikonekti-web/src/app/api/[...path]/route.ts`, `route.test.ts` | Modified (file passthrough for the document route, query table) |
+| `dikonekti-web/src/test/fixtures.ts` | Modified (admin builders) |
+| `dikonekti-web/README.md`, `.ai/context.md` | Modified |
+
+**Scope note (written when DIK-006 was implemented).** This table was first written before DIK-004 shipped and was updated to match what landed: `route-gate.ts` already had the `verification` decision, `LogoutButton` and `ErrorBanner` already lived in `src/components/`, and `Dialog` moved there now. The list is fed by one `status=all` request and filtered into the four tabs on the client, so every tab shows a count from the same data.
