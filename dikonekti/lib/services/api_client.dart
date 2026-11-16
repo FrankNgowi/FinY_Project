@@ -1,15 +1,21 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'token_storage.dart';
 
 /// Thrown for any non-2xx response, carrying the status code and the best
 /// human-readable message we could pull out of Django's response body.
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, this.message, {this.code});
   final int statusCode;
   final String message;
+
+  /// The machine-readable `code` Django sends with some errors (for example
+  /// `verification_required`), or null when there is none.
+  final String? code;
 
   @override
   String toString() => message;
@@ -28,7 +34,23 @@ class ApiClient {
   // means nothing on a real phone. Find your IP with `ipconfig` (look for
   // "IPv4 Address" under your WiFi adapter) and make sure the phone and
   // computer are on the same network. Use the real domain once deployed.
-  static const String baseUrl = 'http://192.168.1.4:8000/api';
+  //
+  // The address can also be set when the app is built or run, without editing
+  // this file: `--dart-define=API_BASE_URL=http://10.0.2.2:8000/api`.
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://192.168.1.4:8000/api',
+  );
+
+  /// The HTTP client every call goes through. Tests replace it.
+  @visibleForTesting
+  static http.Client client = http.Client();
+
+  /// Goes up by one every time the server answers `403` with the code
+  /// `verification_required`: a doctor whose approval was withdrawn while they
+  /// were using the app. The app listens and re-reads the profile, so the one
+  /// place that knows who is logged in decides which screen to show.
+  static final ValueNotifier<int> verificationRequired = ValueNotifier<int>(0);
 
   static Future<Map<String, dynamic>> getMap(String path) async {
     final result = await _send('GET', path);
@@ -62,56 +84,69 @@ class ApiClient {
     return result as Map<String, dynamic>;
   }
 
+  /// Sends a multipart form with one file. The file bytes go out exactly as
+  /// given. Like every other call it attaches the token and, after a 401,
+  /// refreshes it and sends the same file once more.
+  static Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required String field,
+    required String fileName,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    final result = await _execute(
+      () => http.MultipartRequest('POST', Uri.parse('$baseUrl$path'))
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            field,
+            bytes,
+            filename: fileName,
+            contentType: _parseMediaType(contentType),
+          ),
+        ),
+      requiresAuth: true,
+    );
+    return result as Map<String, dynamic>;
+  }
+
   static Future<dynamic> _send(
     String method,
     String path, {
     Map<String, dynamic>? body,
     bool requiresAuth = true,
+  }) {
+    return _execute(
+      () {
+        final request = http.Request(method, Uri.parse('$baseUrl$path'));
+        request.headers['Content-Type'] = 'application/json';
+        if (method != 'GET') request.body = jsonEncode(body ?? {});
+        return request;
+      },
+      requiresAuth: requiresAuth,
+    );
+  }
+
+  /// Builds a fresh request for every attempt (a request can only be sent
+  /// once), adds the token, and retries once after refreshing it on a 401.
+  static Future<dynamic> _execute(
+    http.BaseRequest Function() build, {
+    required bool requiresAuth,
     bool isRetry = false,
   }) async {
-    final uri = Uri.parse('$baseUrl$path');
-    final headers = <String, String>{'Content-Type': 'application/json'};
-
+    final request = build();
     if (requiresAuth) {
       final token = await TokenStorage.getAccessToken();
-      if (token != null) headers['Authorization'] = 'Bearer $token';
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
     }
 
-    late final http.Response response;
-    switch (method) {
-      case 'GET':
-        response = await http.get(uri, headers: headers);
-        break;
-      case 'POST':
-        response = await http.post(
-          uri,
-          headers: headers,
-          body: jsonEncode(body ?? {}),
-        );
-        break;
-      case 'PATCH':
-        response = await http.patch(
-          uri,
-          headers: headers,
-          body: jsonEncode(body ?? {}),
-        );
-        break;
-      default:
-        throw ApiException(0, 'Unsupported HTTP method: $method');
-    }
+    final response = await http.Response.fromStream(await client.send(request));
 
     // Access token expired mid-session — refresh once and retry the
     // original request rather than bouncing the user back to login.
     if (response.statusCode == 401 && requiresAuth && !isRetry) {
       final refreshed = await _tryRefreshAccessToken();
       if (refreshed) {
-        return _send(
-          method,
-          path,
-          body: body,
-          requiresAuth: requiresAuth,
-          isRetry: true,
-        );
+        return _execute(build, requiresAuth: requiresAuth, isRetry: true);
       }
     }
 
@@ -121,8 +156,21 @@ class ApiClient {
       return decoded ?? <String, dynamic>{};
     }
 
-    throw ApiException(response.statusCode, _extractErrorMessage(decoded));
+    final code = decoded is Map<String, dynamic> && decoded['code'] is String
+        ? decoded['code'] as String
+        : null;
+    if (response.statusCode == 403 && code == 'verification_required') {
+      verificationRequired.value++;
+    }
+    throw ApiException(
+      response.statusCode,
+      _extractErrorMessage(decoded),
+      code: code,
+    );
   }
+
+  static MediaType _parseMediaType(String contentType) =>
+      MediaType.parse(contentType);
 
   static String _extractErrorMessage(dynamic decoded) {
     if (decoded == null) return 'Something went wrong. Please try again.';
@@ -143,7 +191,7 @@ class ApiClient {
     if (refreshToken == null) return false;
 
     try {
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/auth/refresh/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'refresh': refreshToken}),
