@@ -15,7 +15,9 @@ class PickedDocument {
   });
 
   final String name;
-  final int length;
+  /// Null when the picker could not tell the size; such a file is refused
+  /// rather than read into memory to find out.
+  final int? length;
   final Future<Uint8List> Function() readBytes;
 }
 
@@ -27,14 +29,9 @@ Future<PickedDocument?> pickDocumentWithFilePicker() async {
     allowedExtensions: DocumentRules.allowedExtensions,
   );
   if (file == null) return null;
-
-  // Most pickers report the size without reading the file. When one does not,
-  // read the bytes once to measure them and reuse them for the upload.
-  final reported = await file.length();
-  final Uint8List? measured = reported == null ? await file.readAsBytes() : null;
   return PickedDocument(
     name: file.name,
-    length: reported ?? measured!.length,
-    readBytes: () async => measured ?? await file.readAsBytes(),
+    length: await file.length(),
+    readBytes: file.readAsBytes,
   );
 }

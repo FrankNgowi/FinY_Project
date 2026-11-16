@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dikonekti/app/app.dart';
 import 'package:dikonekti/screens/dashboard_components.dart';
 import 'package:dikonekti/screens/login_page.dart';
@@ -81,6 +83,27 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(server.meCalls, before);
     });
+  });
+
+  testWidgets('a slow profile reply that lands after logout does not sign the user back in', (tester) async {
+    server = FakeServer(profileStatus: 'approved')..install();
+    await open(tester);
+    expect(find.byType(DoctorDashboard), findsOneWidget);
+
+    server.meGate = Completer<void>();
+    ApiClient.verificationRequired.value++; // refresh starts and waits on the gate
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Log out'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Log Out'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginPage), findsOneWidget);
+
+    server.meGate!.complete(); // the old reply arrives now
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginPage), findsOneWidget);
+    expect(find.byType(DoctorDashboard), findsNothing);
   });
 
   group('after approval', () {

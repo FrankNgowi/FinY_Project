@@ -23,6 +23,10 @@ class _MyAppState extends State<MyApp> {
 
   bool _refreshingProfile = false;
 
+  /// Changes whenever someone signs in or out, so an answer meant for an
+  /// earlier session is dropped.
+  int _session = 0;
+
   @override
   void initState() {
     super.initState();
@@ -46,9 +50,10 @@ class _MyAppState extends State<MyApp> {
   Future<void> _refreshProfile() async {
     if (_currentUser == null || _refreshingProfile) return;
     _refreshingProfile = true;
+    final session = _session;
     try {
       final profile = await UserApiService.getCurrentProfile();
-      if (!mounted) return;
+      if (!mounted || session != _session) return;
       setState(() => _currentUser = profile);
     } catch (_) {
       // Keep what is on screen.
@@ -81,6 +86,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _handleLoginSuccess(UserAccount account) {
+    _session++;
     setState(() => _currentUser = account);
   }
 
@@ -89,6 +95,7 @@ class _MyAppState extends State<MyApp> {
   /// resetting _currentUser to null is what makes `build()` fall back to
   /// showing LoginPage again.
   Future<void> _handleLogout() async {
+    _session++;
     await UserApiService.logout();
     if (mounted) setState(() => _currentUser = null);
   }

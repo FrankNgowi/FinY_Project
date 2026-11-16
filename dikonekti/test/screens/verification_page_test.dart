@@ -33,7 +33,17 @@ class Fakes {
   PickedDocument? next;
   Future<DoctorVerification> Function(String name, Uint8List bytes)? onUpload;
 
+  /// When true, each status request waits for the test to answer it.
+  bool gated = false;
+  final List<Completer<DoctorVerification>> held = [];
+
   Future<DoctorVerification> load() async {
+    if (gated) {
+      loads++;
+      final c = Completer<DoctorVerification>();
+      held.add(c);
+      return c.future;
+    }
     final answer = statuses[loads < statuses.length ? loads : statuses.length - 1];
     loads++;
     if (answer is DoctorVerification) return answer;
@@ -226,6 +236,41 @@ void main() {
       await choose(tester, fakes, 'cert.pdf', 100);
       expect(find.text('Choose a PDF, JPG or PNG file.'), findsNothing);
       expect(find.text('cert.pdf'), findsOneWidget);
+    });
+  });
+
+  group('overlapping status requests', () {
+    testWidgets('an older reply that lands last does not replace a newer one', (tester) async {
+      final fakes = Fakes(statuses: [record(VerificationStatus.pending, submitted: submittedAt)]);
+      await show(tester, fakes);
+      fakes.gated = true;
+      await tester.pump(const Duration(seconds: 31)); // timer starts request A
+      await tester.fling(find.byType(SingleChildScrollView), const Offset(0, 400), 1000);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1)); // pull to refresh starts request B
+      expect(fakes.held, hasLength(2));
+
+      fakes.held[1].complete(record(VerificationStatus.approved)); // newer answer first
+      await tester.pump();
+      fakes.held[0].complete(record(VerificationStatus.pending, submitted: submittedAt)); // stale answer after
+      await tester.pumpAndSettle();
+
+      expect(find.text('Approved. Opening your dashboard…'), findsOneWidget);
+      expect(find.text('Your document is under review'), findsNothing);
+    });
+  });
+
+  group('a file whose size cannot be read', () {
+    testWidgets('is refused with a clear message and its bytes are never read', (tester) async {
+      final fakes = Fakes();
+      await show(tester, fakes);
+      var read = false;
+      fakes.next = PickedDocument(name: 'cert.pdf', length: null, readBytes: () async { read = true; return Uint8List(0); });
+      await tester.tap(find.text('Choose file'));
+      await tester.pump();
+      expect(find.text('We could not read that file. Choose another one.'), findsOneWidget);
+      expect(find.text('No file chosen'), findsOneWidget);
+      expect(read, isFalse);
     });
   });
 

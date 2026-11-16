@@ -66,6 +66,9 @@ class _VerificationPageState extends State<VerificationPage> {
   VerificationStatus? _announced;
   Timer? _timer;
 
+  /// Numbers each status request so only the newest answer is applied.
+  int _loadSeq = 0;
+
   @override
   void initState() {
     super.initState();
@@ -102,9 +105,10 @@ class _VerificationPageState extends State<VerificationPage> {
         _loadError = null;
       });
     }
+    final seq = ++_loadSeq;
     try {
       final record = await widget.loadStatus();
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _record = record;
         _loading = false;
@@ -113,7 +117,7 @@ class _VerificationPageState extends State<VerificationPage> {
       });
       _afterStatus(record);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _loading = false;
         if (_record != null) {
@@ -157,7 +161,10 @@ class _VerificationPageState extends State<VerificationPage> {
   Future<void> _choose() async {
     final picked = await widget.pickDocument();
     if (!mounted || picked == null) return;
-    final problem = DocumentRules.validate(picked.name, picked.length);
+    final length = picked.length;
+    final problem = length == null
+        ? DocumentRules.unreadableMessage
+        : DocumentRules.validate(picked.name, length);
     setState(() {
       if (problem != null) {
         _chosen = null;

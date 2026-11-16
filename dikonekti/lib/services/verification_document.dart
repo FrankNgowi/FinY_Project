@@ -8,6 +8,8 @@ abstract final class DocumentRules {
 
   static const String chooseFileMessage = 'Choose a PDF, JPG or PNG file.';
   static const String tooLargeMessage = 'The file is larger than 5 MB.';
+  static const String unreadableMessage =
+      'We could not read that file. Choose another one.';
   static const String emptyMessage = 'The file is empty.';
   static const String tooManyUploadsMessage =
       'Too many uploads. Please wait a while and try again.';

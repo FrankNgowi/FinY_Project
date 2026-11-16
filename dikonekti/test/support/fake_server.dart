@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dikonekti/services/api_client.dart';
@@ -25,6 +26,9 @@ class FakeServer {
   int statusCalls = 0;
   bool meFails = false;
 
+  /// When set, `/me/` waits for this before answering (to test slow replies).
+  Completer<void>? meGate;
+
   void install() {
     FlutterSecureStorage.setMockInitialValues({
       'dikonekti_access_token': 'ACC',
@@ -43,6 +47,7 @@ class FakeServer {
       }
       if (path.endsWith('/me/')) {
         meCalls++;
+        await meGate?.future;
         if (meFails) return _json({'detail': 'Server error'}, 500);
         return _json(profile);
       }
