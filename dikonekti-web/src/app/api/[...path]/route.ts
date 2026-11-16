@@ -90,7 +90,9 @@ const FILE_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 /**
  * The proxy sets the isolation headers itself instead of trusting the upstream reply to send them:
  * a certificate is user-uploaded content served from the web app's own address. The file name is
- * fixed too, so nothing the doctor chose can reach a header. Only the length is taken from Django.
+ * fixed too, so nothing the doctor chose can reach a header. Only the length is taken from Django,
+ * and only for an uncompressed reply: fetch decodes a compressed body but leaves the compressed
+ * length in the headers, and forwarding it would make the browser see a length mismatch.
  */
 function fileResponse(upstream: Response): NextResponse | null {
   const type = (upstream.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
@@ -102,8 +104,9 @@ function fileResponse(upstream: Response): NextResponse | null {
     "Content-Security-Policy": "sandbox",
     "Cache-Control": "private, no-store",
   });
+  const encoding = (upstream.headers.get("content-encoding") ?? "identity").trim().toLowerCase();
   const length = upstream.headers.get("content-length");
-  if (length && /^\d+$/.test(length)) headers.set("Content-Length", length);
+  if (encoding === "identity" && length && /^\d+$/.test(length)) headers.set("Content-Length", length);
   return new NextResponse(upstream.body, { status: 200, headers });
 }
 

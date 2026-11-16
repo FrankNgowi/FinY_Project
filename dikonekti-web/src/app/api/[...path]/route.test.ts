@@ -382,6 +382,34 @@ describe("API proxy", () => {
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     });
 
+    it.each([["gzip"], ["br"], ["deflate"], ["GZIP"]])(
+      "does_not_forward_a_content_length_that_describes_a_%s_compressed_reply",
+      async (encoding) => {
+        // fetch decodes the body but leaves the compressed length in the headers; forwarding it
+        // would make the browser report a length mismatch or show a truncated file.
+        const compressed = upstreamFile(PDF, "application/pdf", { "content-encoding": encoding, "content-length": "123" });
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(compressed));
+        const res = await call(GET, DOC, { cookie: cookie("ACC") });
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-length")).toBeNull();
+        expect(res.headers.get("content-encoding")).toBeNull();
+        expect(sha(await bytesOf(res))).toBe(sha(PDF));
+      },
+    );
+
+    it("still_forwards_the_length_when_the_reply_says_identity_or_has_no_encoding", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => upstreamFile(PDF, "application/pdf", { "content-encoding": "identity" })));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.headers.get("content-length")).toBe(String(PDF.byteLength));
+    });
+
+    it("does_not_forward_a_malformed_content_length", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => upstreamFile(PDF, "application/pdf", { "content-length": "12abc" })));
+      const res = await call(GET, DOC, { cookie: cookie("ACC") });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-length")).not.toBe("12abc");
+    });
+
     it("sends_the_admins_token_and_asks_django_for_the_right_file", async () => {
       const fetchMock = vi.fn().mockResolvedValue(upstreamFile(PDF, "application/pdf"));
       vi.stubGlobal("fetch", fetchMock);
