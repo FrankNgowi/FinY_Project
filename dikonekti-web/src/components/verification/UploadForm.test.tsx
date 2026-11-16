@@ -143,6 +143,28 @@ describe("UploadForm", () => {
     expect((submit() as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("clears_the_old_server_error_as_soon_as_a_different_file_is_chosen", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ document: ["Only PDF, JPEG or PNG files are accepted."] }, 400)));
+    renderForm();
+    const u = user();
+    await u.upload(input(), file("fake.pdf", "application/pdf"));
+    await u.click(submit());
+    expect((await screen.findByRole("alert")).textContent).toBe("Only PDF, JPEG or PNG files are accepted.");
+    await u.upload(input(), file("real.pdf", "application/pdf"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("clears_the_error_when_the_chosen_file_is_removed_too", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "Nope." }, 400)));
+    renderForm();
+    const u = user();
+    await u.upload(input(), file("fake.pdf", "application/pdf"));
+    await u.click(submit());
+    await screen.findByRole("alert");
+    await u.upload(input(), []);
+    await waitFor(() => expect(screen.queryByText("Nope.")).toBeNull());
+  });
+
   it("uses_the_label_it_is_given", () => {
     renderForm("Submit again");
     expect(screen.getByRole("button", { name: "Submit again" })).toBeTruthy();

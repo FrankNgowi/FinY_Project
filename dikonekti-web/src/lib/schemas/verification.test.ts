@@ -43,6 +43,25 @@ describe("documentFormSchema", () => {
     expect(messageOf(file(name, type))).toBe(CHOOSE_FILE_MESSAGE);
   });
 
+  it.each([["scan.pdf"], ["scan.PDF"], ["photo.jpg"], ["photo.jpeg"], ["photo.png"]])(
+    "treats_a_generic_octet_stream_type_as_unknown_and_checks_the_extension_of_%s",
+    (name) => {
+      expect(check(file(name, "application/octet-stream")).success).toBe(true);
+    },
+  );
+
+  it.each([["letter.docx"], ["run.exe"], ["README"], ["cert.pdf.exe"], ["archive.zip"]])(
+    "still_refuses_%s_when_the_type_is_a_generic_octet_stream",
+    (name) => {
+      expect(messageOf(file(name, "application/octet-stream"))).toBe(CHOOSE_FILE_MESSAGE);
+    },
+  );
+
+  it("does_not_let_a_good_extension_override_a_clearly_wrong_declared_type", () => {
+    expect(messageOf(file("cert.pdf", "text/html"))).toBe(CHOOSE_FILE_MESSAGE);
+    expect(messageOf(file("cert.png", "application/x-msdownload"))).toBe(CHOOSE_FILE_MESSAGE);
+  });
+
   it("refuses_an_unknown_type_with_an_unknown_extension", () => {
     expect(messageOf(file("README", ""))).toBe(CHOOSE_FILE_MESSAGE);
     expect(messageOf(file("cert.pdf.exe", ""))).toBe(CHOOSE_FILE_MESSAGE);

@@ -43,7 +43,11 @@ export function UploadForm({ submitLabel }: { submitLabel: string }) {
               ref={field.ref}
               name={field.name}
               onBlur={field.onBlur}
-              onChange={(event) => field.onChange(event.target.files?.[0])}
+              onChange={(event) => {
+                // A new choice makes the last server answer about the old file out of date.
+                setServerError(null);
+                field.onChange(event.target.files?.[0]);
+              }}
               id="verification-document"
               type="file"
               accept={ACCEPT}

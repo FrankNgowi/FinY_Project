@@ -11,10 +11,16 @@ export const EMPTY_FILE_MESSAGE = "The file is empty.";
 const ALLOWED_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const ALLOWED_EXTENSION = /\.(pdf|jpe?g|png)$/i;
 
-/** The browser's own type when it gives one; the extension only when it gives none. */
+/** A browser that does not recognise the file reports no type, or this generic one. */
+const GENERIC_TYPE = "application/octet-stream";
+
+/**
+ * The browser's own type when it gives a specific one; the extension when it gives none or only
+ * the generic type. A clearly wrong type (such as text/html) is never rescued by the extension.
+ */
 function hasAllowedType(file: File): boolean {
   const type = file.type.trim().toLowerCase();
-  return type ? ALLOWED_TYPES.has(type) : ALLOWED_EXTENSION.test(file.name);
+  return type && type !== GENERIC_TYPE ? ALLOWED_TYPES.has(type) : ALLOWED_EXTENSION.test(file.name);
 }
 
 export const documentFormSchema = z.object({
